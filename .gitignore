@@ -1,41 +1,16 @@
-# Prerequisites
-*.d
+# Ignore these directories wherever they are found
+.vs/
+.vscode/
+.idea/
 
-# Compiled Object files
-*.slo
-*.lo
-*.o
-*.obj
+# Ignore these directories in the root
+/bin
+/int
 
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
-*.so
-*.dylib
-*.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
-*.exe
-*.out
-*.app
-
-# debug information files
-*.dwo
+# File Types
+*.cap
+*.ini
+*.Intermediate
+*.aps
+*.vcxproj.filters
+*.DotSettings.user
