@@ -32,3 +32,11 @@ using glm::quat;
 using glm::ivec2;
 using glm::ivec3;
 using glm::ivec4;
+
+constexpr u64 INVALID_FENCE_VALUE = ~0ull;
+
+#ifdef _DEBUG
+constexpr u32 CREATE_FACTORY_FLAGS = DXGI_CREATE_FACTORY_DEBUG;
+#elif
+constexpr u32 CREATE_FACTORY_FLAGS = 0;
+#endif

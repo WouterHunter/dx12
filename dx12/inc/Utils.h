@@ -10,3 +10,8 @@ inline void ThrowIfFailed(HRESULT result) {
 		throw std::exception();
 	}
 }
+
+inline void SetThreadName(std::thread& thread, const std::wstring& name) {
+	HANDLE nativeHandle = thread.native_handle();
+	ThrowIfFailed(SetThreadDescription(nativeHandle, name.c_str()));
+}

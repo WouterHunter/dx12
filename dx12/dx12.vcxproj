@@ -19,11 +19,26 @@
     </ProjectConfiguration>
   </ItemGroup>
   <ItemGroup>
-    <ClCompile Include="src\main.cpp" />
+    <ClCompile Include="src\Device.cpp" />
+    <ClCompile Include="src\Context.cpp" />
+    <ClCompile Include="src\CommandQueue.cpp" />
+    <ClCompile Include="src\main.cpp">
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Create</PrecompiledHeader>
+      <PrecompiledHeader Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Create</PrecompiledHeader>
+    </ClCompile>
+    <ClCompile Include="src\ThreadPool.cpp" />
+    <ClCompile Include="src\Window.cpp" />
   </ItemGroup>
   <ItemGroup>
-    <ClInclude Include="inc\core.h" />
-    <ClInclude Include="inc\utils.h" />
+    <ClInclude Include="inc\Device.h" />
+    <ClInclude Include="inc\Context.h" />
+    <ClInclude Include="inc\CommandQueue.h" />
+    <ClInclude Include="inc\Core.h" />
+    <ClInclude Include="inc\ThreadPool.h" />
+    <ClInclude Include="inc\ThreadSafeQueue.h" />
+    <ClInclude Include="inc\Utils.h" />
+    <ClInclude Include="inc\Window.h" />
+    <ClInclude Include="inc\PCH.h" />
     <ClInclude Include="res\resource.h" />
   </ItemGroup>
   <ItemGroup>
@@ -126,6 +141,8 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)inc;$(ProjectDir)inc;$(ProjectDir)res</AdditionalIncludeDirectories>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>PCH.h</PrecompiledHeaderFile>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
@@ -143,6 +160,8 @@
       <ConformanceMode>true</ConformanceMode>
       <LanguageStandard>stdcpp20</LanguageStandard>
       <AdditionalIncludeDirectories>$(SolutionDir)inc;$(ProjectDir)inc;$(ProjectDir)res</AdditionalIncludeDirectories>
+      <PrecompiledHeader>Use</PrecompiledHeader>
+      <PrecompiledHeaderFile>PCH.h</PrecompiledHeaderFile>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
