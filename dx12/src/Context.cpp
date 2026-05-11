@@ -13,12 +13,6 @@
 
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12 Render Window";
 
-// Context singleton instance
-static Context* context = nullptr;
-
-// Win32 message callback
-static LRESULT CALLBACK WndProc(HWND, UINT, WPARAM, LPARAM);
-
 namespace {
 	/**
 	 * Create a console window (consoles are not automatically created for Windows
@@ -88,6 +82,53 @@ namespace {
 		}
 		return allowTearing;
 	}
+
+	void CreateWindowSwapChain(Window* window) {
+		SwapChain& swapChain = window->swapChain;
+		ComPtr<IDXGISwapChain1> swapChain1;
+		ComPtr<IDXGIFactory4> factory;
+
+		ThrowIfFailed(CreateDXGIFactory2(CREATE_FACTORY_FLAGS, IID_PPV_ARGS(&factory)));
+
+		DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {
+			.Width = (UINT)window->size.x,
+			.Height = (UINT)window->size.y,
+			.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+			.Stereo = FALSE,
+			.SampleDesc = { 1, 0 },
+			.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+			.BufferCount = SWAP_CHAIN_BUFFER_COUNT,
+			.Scaling = DXGI_SCALING_STRETCH,
+			.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+			.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED,
+			.Flags = (CheckTearingSupport() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
+				DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
+		};
+
+		Context* context = window->context;
+		swapChain.context = context;
+		const CommandQueue& commandQueue = context->CommandQueueDirect();
+
+		ThrowIfFailed(factory->CreateSwapChainForHwnd(
+			commandQueue.d3dCommandQueue.Get(),
+			window->hWnd,
+			&swapChainDesc,
+			nullptr,
+			nullptr,
+			&swapChain1));
+
+		ThrowIfFailed(factory->MakeWindowAssociation(window->hWnd, DXGI_MWA_NO_ALT_ENTER));
+		ThrowIfFailed(swapChain1.As(&swapChain.dxgiSwapChain4));
+		ThrowIfFailed(swapChain.dxgiSwapChain4->SetMaximumFrameLatency(SWAP_CHAIN_BUFFER_COUNT - 1));
+
+		swapChain.frameLatencyWaitHandle = swapChain.dxgiSwapChain4->GetFrameLatencyWaitableObject();
+		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
+		swapChain.rtvVDescriptorHeap = CreateDescriptorHeap(context->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, SWAP_CHAIN_BUFFER_COUNT);
+		swapChain.rtvDescriptorSize = context->GetDevice().dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		swapChain.allowTearing = CheckTearingSupport();
+
+		swapChain.UpdateBackBuffers();
+	}
 }
 
 DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors) {
@@ -101,57 +142,12 @@ DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_
 	return heap;
 }
 
-void CreateWindowSwapChain(Window& window) {
-	SwapChain& swapChain = window.swapChain;
-	ComPtr<IDXGISwapChain1> swapChain1;
-	ComPtr<IDXGIFactory4> factory;
-
-	ThrowIfFailed(CreateDXGIFactory2(CREATE_FACTORY_FLAGS, IID_PPV_ARGS(&factory)));
-
-	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {
-		.Width = (UINT)window.size.x,
-		.Height = (UINT)window.size.y,
-		.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-		.Stereo = FALSE,
-		.SampleDesc = { 1, 0 },
-		.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-		.BufferCount = SWAP_CHAIN_BUFFER_COUNT,
-		.Scaling = DXGI_SCALING_STRETCH,
-		.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
-		.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED,
-		.Flags = (CheckTearingSupport() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
-			DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
-	};
-
-	const CommandQueue& commandQueue = Context::CommandQueueDirect();
-
-	ThrowIfFailed(factory->CreateSwapChainForHwnd(
-		commandQueue.d3dCommandQueue.Get(),
-		window.hWnd,
-		&swapChainDesc,
-		nullptr,
-		nullptr,
-		&swapChain1));
-
-	ThrowIfFailed(factory->MakeWindowAssociation(window.hWnd, DXGI_MWA_NO_ALT_ENTER));
-	ThrowIfFailed(swapChain1.As(&swapChain.dxgiSwapChain4));
-	ThrowIfFailed(swapChain.dxgiSwapChain4->SetMaximumFrameLatency(SWAP_CHAIN_BUFFER_COUNT - 1));
-
-	swapChain.frameLatencyWaitHandle = swapChain.dxgiSwapChain4->GetFrameLatencyWaitableObject();
-	swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
-	swapChain.rtvVDescriptorHeap = CreateDescriptorHeap(Context::GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, SWAP_CHAIN_BUFFER_COUNT);
-	swapChain.rtvDescriptorSize = Context::GetDevice().dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	swapChain.allowTearing = CheckTearingSupport();
-
-	swapChain.UpdateBackBuffers();
-}
-
 void SwapChain::Present() {
 	UINT syncInterval = vSync ? 1 : 0;
 	UINT presentFlags = allowTearing && !fullscreen && !vSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
 	ThrowIfFailed(dxgiSwapChain4->Present(syncInterval, presentFlags));
 	
-	CommandQueue& commandQueue = Context::CommandQueueDirect();
+	CommandQueue& commandQueue = context->CommandQueueDirect();
 	frameFenceValues[currentBackBufferIndex] = commandQueue.Signal();
 	currentBackBufferIndex = dxgiSwapChain4->GetCurrentBackBufferIndex();
 	commandQueue.WaitForFenceValue(frameFenceValues[currentBackBufferIndex]);
@@ -165,7 +161,7 @@ void SwapChain::Wait() {
 }
 
 void SwapChain::UpdateBackBuffers() {
-	const Device& device = Context::GetDevice();
+	const Device& device = context->GetDevice();
 	u32 rtvDescriptorSize = device.dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvVDescriptorHeap.d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
@@ -177,9 +173,8 @@ void SwapChain::UpdateBackBuffers() {
 	}
 }
 
-void Context::Create(HINSTANCE hInst)
-{
-	context = new Context;
+Context* Context::Create(HINSTANCE hInst) {
+	Context* context = new Context;
 	context->hInstance = hInst;
 
 	// Windows 10 Creators update adds Per Monitor V2 DPI awareness context.
@@ -198,7 +193,7 @@ void Context::Create(HINSTANCE hInst)
 	WNDCLASSEXW windowClass = {
 		.cbSize = sizeof(WNDCLASSEX),
 		.style = CS_HREDRAW | CS_VREDRAW,
-		.lpfnWndProc = &WndProc,
+		.lpfnWndProc = &Window::WndProc,
 		.cbClsExtra = 0,
 		.cbWndExtra = 0,
 		.hInstance = hInst,
@@ -211,93 +206,84 @@ void Context::Create(HINSTANCE hInst)
 	};
 
 	if (!RegisterClassExW(&windowClass)) {
-		MessageBoxA(NULL, "Unable to register the window class.", "Error", MB_OK | MB_ICONERROR);
+		std::string message = "Unable to register the window class: " + GetWin32ErrorMessage();
+		MessageBoxA(NULL, message.c_str(), "Error", MB_OK | MB_ICONERROR);
+		__debugbreak();
 	}
 
 	context->adapter = Adapter::Create(false);
 	context->device = Device::Create(context->adapter);
 
-	context->commandQueueDirect.Init(context->device, D3D12_COMMAND_LIST_TYPE_DIRECT);
-	context->commandQueueCompute.Init(context->device, D3D12_COMMAND_LIST_TYPE_COMPUTE);
-	context->commandQueueCopy.Init(context->device, D3D12_COMMAND_LIST_TYPE_COPY);
+	context->commandQueueDirect.Init(context, D3D12_COMMAND_LIST_TYPE_DIRECT);
+	context->commandQueueCompute.Init(context, D3D12_COMMAND_LIST_TYPE_COMPUTE);
+	context->commandQueueCopy.Init(context, D3D12_COMMAND_LIST_TYPE_COPY);
+
+	return context;
 }
 
 void Context::Destroy() {
 
 	FlushAllCommandQueues();
 
-	context->commandQueueDirect.ClearCommandLists();
-	context->commandQueueCompute.ClearCommandLists();
-	context->commandQueueCopy.ClearCommandLists();
-	
-	delete context;
-	context = nullptr;
+	commandQueueDirect.ClearCommandLists();
+	commandQueueCompute.ClearCommandLists();
+	commandQueueCopy.ClearCommandLists();
 }
 
-Window Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
-	Window window = {};
+Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
+	Window* window = new Window;
+	window->context = this;
+	window->rect = { 0, 0, (LONG)size.x, (LONG)size.y };
+	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
 
-	window.rect = { 0, 0, (LONG)size.x, (LONG)size.y };
-	AdjustWindowRect(&window.rect, WS_OVERLAPPEDWINDOW, FALSE);
-
-	window.hWnd = CreateWindowExW(
+	window->hWnd = CreateWindowExW(
 		NULL, WINDOW_CLASS_NAME, title, WS_OVERLAPPEDWINDOW,
 		CW_USEDEFAULT, CW_USEDEFAULT,
-		window.rect.right - window.rect.left,
-		window.rect.bottom - window.rect.top,
-		NULL, NULL, context->hInstance, nullptr);
+		window->rect.right - window->rect.left,
+		window->rect.bottom - window->rect.top,
+		NULL, NULL, hInstance, nullptr);
 
-	if (!window.hWnd) {
+	if (!window->hWnd) {
 		MessageBoxA(NULL, "Could not create the render window.", "Error", MB_OK | MB_ICONERROR);
 		return {};
 	}
 
-	CreateWindowSwapChain(window);
-	CreateConsole(); // Create debug console while using WINDOWS subsystem
+	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
+	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
 
-	window.initialized = true;
+	CreateConsole(); // Create debug console while using WINDOWS subsystem
+	CreateWindowSwapChain(window);
+
+	window->initialized = true;
 
 	return window;
 }
 
-void Context::DestroyWindow(Window& window) {
-	
+void Context::DestroyWindow(Window* window) {
+	delete window;
 }
 
 // Make sure the command queue has finished all commands before closing.
 void Context::FlushAllCommandQueues() {
-	context->commandQueueDirect.Flush();
-	context->commandQueueCompute.Flush();
-	context->commandQueueCopy.Flush();
+	commandQueueDirect.Flush();
+	commandQueueCompute.Flush();
+	commandQueueCopy.Flush();
 }
 
 void Context::Quit(int exitCode) {
 	PostQuitMessage(exitCode);
 }
 
-Device& Context::GetDevice() { return context->device; }
-CommandQueue& Context::CommandQueueDirect() { return context->commandQueueDirect; }
-CommandQueue& Context::CommandQueueCompute() { return context->commandQueueCompute; }
-CommandQueue& Context::CommandQueueCopy() { return context->commandQueueCopy; }
-
-void SetWindowPointer(Window& window) {
-
-	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
-	SetWindowLongPtrW(window.hWnd, GWLP_USERDATA, (LONG_PTR)&window);
-}
-
-void ResizeWindow(Window& window, ivec2 size) {
-	if (window.size.x != size.x || window.size.y != size.y)
+void Window::Resize(ivec2 size) {
+	if (size.x != size.x || size.y != size.y)
 	{
 		// Don't allow 0 size swap chain back buffers.
-		window.size.x = std::max(1, size.x);
-		window.size.y = std::max(1, size.y);
-		
-		SwapChain& swapChain = window.swapChain;
+		this->size.x = std::max(1, size.x);
+		this->size.y = std::max(1, size.y);
 
 		// Flush the GPU queue to make sure the swap chain's back buffers
 		// are not being referenced by an in-flight command list.
-		Context::FlushAllCommandQueues();
+		context->FlushAllCommandQueues();
 
 		for (Resource& backBuffer : swapChain.backBuffers) {
 			// Any references to the back buffers must be released
@@ -306,109 +292,11 @@ void ResizeWindow(Window& window, ivec2 size) {
 		}
 		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
 		ThrowIfFailed(swapChain.dxgiSwapChain4->GetDesc(&swapChainDesc));
-		ThrowIfFailed(swapChain.dxgiSwapChain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, window.size.x, window.size.y,
+		ThrowIfFailed(swapChain.dxgiSwapChain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT, 
+			this->size.x, this->size.y,
 			swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
 
 		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
 		swapChain.UpdateBackBuffers();
 	}
-}
-
-void SetShowWindow(Window& window, bool show) {
-	ShowWindow(window.hWnd, show ? SW_SHOW : SW_HIDE);
-}
-
-bool WindowPollEvents(Window& window) {
-
-	// Pump messages
-	MSG msg;
-	while (PeekMessageW(&msg, NULL, 0, 0, PM_REMOVE)) {
-		TranslateMessage(&msg);
-		DispatchMessage(&msg);
-		
-		if (msg.message == WM_QUIT) {
-			return false;
-		}
-	}
-
-	// Get delta time and total time in seconds
-	LARGE_INTEGER currentTime;
-	QueryPerformanceCounter(&currentTime);
-	f64 delta = f64(currentTime.QuadPart - window.lastTime);
-	f64 total = f64(currentTime.QuadPart - window.startTime);
-	window.lastTime = currentTime.QuadPart;
-
-	// Store time in seconds
-	window.deltaTime = delta * window.invPerfFreq;
-	window.totalTime = total * window.invPerfFreq;
-
-	// Update the window title with current FPS every second
-	if (window.totalTime - floor(window.totalTime) < window.deltaTime) {
-		constexpr size_t BUFFER_SIZE = 256;
-		WCHAR buffer[BUFFER_SIZE];
-		f64 fps = round(1.0 / window.deltaTime);
-		f64 mspf = 1000.0 / fps;
-		swprintf_s(buffer, BUFFER_SIZE, L"FPS: %3.0f | MS/Frame: %2.1f", fps, mspf);
-		SetWindowTextW(window.hWnd, buffer);
-	}
-	
-	return true;
-}
-
-LRESULT WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
-	
-	Window* window = (Window*)GetWindowLongPtr(hWnd, GWLP_USERDATA);
-	if (window && window->initialized) {
-		switch (message) {
-		case WM_SYSKEYDOWN:
-		case WM_KEYDOWN: {
-			bool alt = (::GetAsyncKeyState(VK_MENU) & 0x8000) != 0;
-
-			switch (wParam)
-			{
-			case 'V':
-				window->swapChain.vSync = !window->swapChain.vSync;
-				break;
-			case VK_ESCAPE:
-				::PostQuitMessage(0);
-				break;
-			case VK_RETURN:
-				if (alt)
-				{
-					//SetFullscreen(!g_Fullscreen);
-				}
-			case VK_F11:
-				break;
-			}
-		}
-			break;
-			
-		case WM_SIZE: {
-			RECT clientRect = {};
-			GetClientRect(hWnd, &clientRect);
-			ResizeWindow(*window, {
-				clientRect.right - clientRect.left,
-				clientRect.bottom - clientRect.top
-				});
-		}
-			break;
-			// The default window procedure will play a system notification sound 
-			// when pressing the Alt+Enter keyboard combination if this message is 
-			// not handled.
-		case WM_SYSCHAR:
-			break;
-			
-		case WM_DESTROY:
-			::PostQuitMessage(0);
-			break;
-			
-		default:
-			return ::DefWindowProcW(hWnd, message, wParam, lParam);
-		}
-	}
-	else {
-		return ::DefWindowProcW(hWnd, message, wParam, lParam);
-	}
-
-	return 0;
 }

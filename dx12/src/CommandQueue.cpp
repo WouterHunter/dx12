@@ -2,11 +2,11 @@
 #include "CommandQueue.h"
 #include "Context.h"
 
-CommandList* CommandList::Create(D3D12_COMMAND_LIST_TYPE type) {
+CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type) {
 	CommandList* commandList = new CommandList;
 	commandList->type = type;
 
-	Device& device = Context::GetDevice();
+	Device& device = context->GetDevice();
 	ThrowIfFailed(device.dxgiDevice2->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
 	ThrowIfFailed(device.dxgiDevice2->CreateCommandList(
 		0,
@@ -27,7 +27,10 @@ void CommandList::Reset() {
 	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
 }
 
-void CommandQueue::Init(Device& device, D3D12_COMMAND_LIST_TYPE type) {
+void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
+	this->context = context;
+	this->type = type;
+	Device& device = context->GetDevice();
 	D3D12_COMMAND_QUEUE_DESC desc = {
 		.Type = type,
 		.Priority = D3D12_COMMAND_QUEUE_PRIORITY_NORMAL,
@@ -51,7 +54,7 @@ void CommandQueue::Init(Device& device, D3D12_COMMAND_LIST_TYPE type) {
 CommandList* CommandQueue::GetCommandList() {
 	CommandList* commandList = nullptr;
 	if (!availableCommandLists.TryPop(commandList)) {
-		commandList = CommandList::Create(type);
+		commandList = CommandList::Create(context, type);
 	}
 	return commandList;
 }
@@ -108,7 +111,10 @@ void CommandQueue::WaitForFenceValue(u64 value) {
 	if (d3dFence->GetCompletedValue() < value) {
 		HANDLE fenceEvent = CreateEvent(NULL, FALSE, FALSE, NULL);
 		ThrowIfFailed(d3dFence->SetEventOnCompletion(value, fenceEvent));
-		WaitForSingleObject(fenceEvent, INFINITE);
+		// Wait for 1 second (should never have to wait that long...)
+		if (WAIT_FAILED == WaitForSingleObjectEx(fenceEvent, 1000, true)) {
+			assert(false && "Exceeded max wait time for frame");
+		}
 		CloseHandle(fenceEvent);
 	}
 }

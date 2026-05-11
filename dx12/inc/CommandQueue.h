@@ -4,12 +4,13 @@
 
 constexpr u32 COMMAND_QUEUE_LIST_COUNT = 5;
 
+
 /** Command list */
 struct CommandList {
 
 	// Try to get an existing available command list.
 	// If none are available, a new one will be created.
-	static CommandList* Create(D3D12_COMMAND_LIST_TYPE type);
+	static CommandList* Create(struct Context* context, D3D12_COMMAND_LIST_TYPE type);
 
 	void Close();
 	void Reset();
@@ -22,7 +23,7 @@ struct CommandList {
 /** Command queue */
 struct CommandQueue {
 
-	void Init(Device& device, D3D12_COMMAND_LIST_TYPE type);
+	void Init(struct Context* context, D3D12_COMMAND_LIST_TYPE type);
 
 	CommandList* GetCommandList();
 	void ClearCommandLists();
@@ -36,6 +37,7 @@ struct CommandQueue {
 	void WaitForInFlightCommandListsTask();
 	void WaitForInFlightCommandLists();
 
+	Context* context;
 	D3D12_COMMAND_LIST_TYPE type;
 	ComPtr<ID3D12CommandQueue> d3dCommandQueue;
 

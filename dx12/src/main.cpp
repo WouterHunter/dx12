@@ -32,21 +32,16 @@ namespace {
 
 int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
-	// TODO: GET RID OF THE SINGLETON
-
-	Context::Create(hInstance);
-
 	CommandLineArgs args = ParseCommandLineArguments(lpCmdLine);
-	Window window = Context::CreateWindow(L"dx12 test window", { args.width, args.height }, args.vSync);
-	SetWindowPointer(window);
-	SetShowWindow(window, true);
-
+	Context* context = Context::Create(hInstance);
+	Window* window = context->CreateWindow(L"DX12 Lib Test Window", { args.width, args.height }, args.vSync);
 	ThreadPool* threadPool = new ThreadPool(8);
 
-	while (WindowPollEvents(window)) {
-		CommandQueue& commandQueue = Context::CommandQueueDirect();
+	window->SetShowWindow(true);
+	while (window->PollEvents()) {
+		CommandQueue& commandQueue = context->CommandQueueDirect();
 		CommandList* commandList = commandQueue.GetCommandList();
-		SwapChain& swapChain = window.swapChain;
+		SwapChain& swapChain = window->swapChain;
 		Resource& backBuffer = swapChain.backBuffers[swapChain.currentBackBufferIndex];
 
 		// Clear the render target.
@@ -83,8 +78,8 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	// Cleanup
 	delete threadPool;
-	Context::DestroyWindow(window);
-	Context::Destroy();
+	context->DestroyWindow(window);
+	context->Destroy();
 
 
 
