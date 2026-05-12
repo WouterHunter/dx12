@@ -1,6 +1,6 @@
 #pragma once
-#include "Device.h"
 #include "ThreadSafeQueue.h"
+#include "Resource.h"
 
 constexpr u32 COMMAND_QUEUE_LIST_COUNT = 5;
 
@@ -14,6 +14,14 @@ struct CommandList {
 
 	void Close();
 	void Reset();
+
+	void Transition(Resource* resource, ResourceState before, ResourceState after);
+
+	// Clear a render target view.
+	void ClearRTV(Resource* resource, FLOAT* clearColor);
+
+	// Clear the depth of a depth-stencil view.
+	void ClearDSV(Resource* resource, FLOAT depth = 1.0f);
 
 	D3D12_COMMAND_LIST_TYPE type;
 	ComPtr<ID3D12CommandAllocator> d3dCommandAllocator;

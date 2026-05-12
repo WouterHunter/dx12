@@ -1,10 +1,12 @@
-#include "PCH.h"
+#include "DX12PCH.h"
 #include "ThreadPool.h"
 #include "Utils.h"
 
 ThreadPool::ThreadPool(size_t numThreads)
 	: m_NumThreads(numThreads)
 {
+	if (m_NumThreads == 0)
+		m_NumThreads = std::thread::hardware_concurrency();
 	CreateThreads();
 }
 
@@ -87,7 +89,9 @@ void ThreadPool::CreateThreads() {
 	m_Threads = new std::thread[m_NumThreads];
 	for (size_t i = 0; i < m_NumThreads; ++i) {
 		m_Threads[i] = std::thread(&ThreadPool::Worker, this);
-		SetThreadName(m_Threads[i], L"Worker Thread " + std::to_wstring(i));
+		HANDLE nativeHandle = m_Threads[i].native_handle();
+		std::wstring name = L"Worker Thread " + std::to_wstring(i);
+		ThrowIfFailed(SetThreadDescription(nativeHandle, name.c_str()));
 	}	
 }
 

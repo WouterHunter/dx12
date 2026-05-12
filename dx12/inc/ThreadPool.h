@@ -6,7 +6,7 @@
 class ThreadPool
 {
 public:
-	explicit ThreadPool(size_t numThreads);
+	explicit ThreadPool(size_t numThreads = 0);
 	~ThreadPool();
 
 	[[nodiscard]] size_t GetNumTasksQueued() const;

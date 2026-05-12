@@ -1,4 +1,5 @@
 #pragma once
+#include "Resource.h"
 
 constexpr u32 SWAP_CHAIN_BUFFER_COUNT = 3;
 
@@ -14,18 +15,13 @@ struct DescriptorHeap {
 DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors);
 
 
-/** Resource */
-struct Resource {
-	ComPtr<ID3D12Resource> resource;
-};
-
-
 /** Swap chain */
 struct SwapChain {
 
 	void Present();
 	void Wait();
 	void UpdateBackBuffers();
+	Resource* GetBackBuffer();
 
 	Context* context;
 	ComPtr<IDXGISwapChain4> dxgiSwapChain4;

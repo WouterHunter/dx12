@@ -1,4 +1,4 @@
-#include "PCH.h"
+#include "DX12PCH.h"
 #include "CommandQueue.h"
 #include "Context.h"
 
@@ -25,6 +25,24 @@ void CommandList::Close() {
 void CommandList::Reset() {
 	ThrowIfFailed(d3dCommandAllocator->Reset());
 	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
+}
+
+void CommandList::Transition(Resource* resource, ResourceState before, ResourceState after) {
+	CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
+		resource->resource.Get(), 
+		GetD3D12ResourceState(before), 
+		GetD3D12ResourceState(after));
+
+	d3dCommandList->ResourceBarrier(1, &barrier);
+}
+
+void CommandList::ClearRTV(Resource* resource, FLOAT* clearColor) {
+	Transition(resource, RS_PRESENT, RS_RENDER_TARGET);
+	d3dCommandList->ClearRenderTargetView(resource->cpuHandle, clearColor, 0, nullptr);
+}
+
+void CommandList::ClearDSV(Resource* resource, FLOAT depth)
+{
 }
 
 void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
@@ -90,6 +108,8 @@ u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 		CommandList* commandList = commandLists[idx];
 		inFlightCommandLists.Push({ commandList, fenceValue });
 	}
+
+	context->GetThreadPool().PushTask(&CommandQueue::WaitForInFlightCommandListsTask, this);
 
 	return fenceValue;
 }

@@ -1,6 +1,82 @@
-#include "PCH.h"
+#include "DX12PCH.h"
 #include "Window.h"
+#include "Context.h"
 
+
+DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors) {
+	DescriptorHeap heap = {};
+	D3D12_DESCRIPTOR_HEAP_DESC desc = {
+		.Type = type,
+		.NumDescriptors = numDescriptors,
+	};
+	ThrowIfFailed(device.dxgiDevice2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
+
+	return heap;
+}
+
+void SwapChain::Present() {
+	UINT syncInterval = vSync ? 1 : 0;
+	UINT presentFlags = allowTearing && !fullscreen && !vSync ? DXGI_PRESENT_ALLOW_TEARING : 0;
+	ThrowIfFailed(dxgiSwapChain4->Present(syncInterval, presentFlags));
+
+	CommandQueue& commandQueue = context->CommandQueueDirect();
+	frameFenceValues[currentBackBufferIndex] = commandQueue.Signal();
+	currentBackBufferIndex = dxgiSwapChain4->GetCurrentBackBufferIndex();
+	commandQueue.WaitForFenceValue(frameFenceValues[currentBackBufferIndex]);
+}
+
+void SwapChain::Wait() {
+	// Wait for 1 second (should never have to wait that long...)
+	if (WAIT_FAILED == WaitForSingleObjectEx(frameLatencyWaitHandle, 1000, true)) {
+		assert(false && "Exceeded max wait time for frame");
+	}
+}
+
+void SwapChain::UpdateBackBuffers() {
+	const Device& device = context->GetDevice();
+	u32 rtvDescriptorSize = device.dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvVDescriptorHeap.d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
+		Resource& backBuffer = backBuffers[i];
+		backBuffer.cpuHandle = rtvHandle;
+		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer.resource)));
+		ThrowIfFailed(backBuffer.resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
+		device.dxgiDevice2->CreateRenderTargetView(backBuffer.resource.Get(), nullptr, rtvHandle);
+		rtvHandle.Offset((INT)rtvDescriptorSize);
+	}
+}
+
+Resource* SwapChain::GetBackBuffer() {
+	Resource* backBuffer = backBuffers + currentBackBufferIndex;
+	return backBuffer;
+}
+
+void Window::Resize(ivec2 size) {
+	if (size.x != size.x || size.y != size.y)
+	{
+		// Don't allow 0 size swap chain back buffers.
+		this->size.x = std::max(1, size.x);
+		this->size.y = std::max(1, size.y);
+
+		// Flush the GPU queue to make sure the swap chain's back buffers
+		// are not being referenced by an in-flight command list.
+		context->FlushAllCommandQueues();
+
+		for (Resource& backBuffer : swapChain.backBuffers) {
+			// Any references to the back buffers must be released
+			// before the swap chain can be resized.
+			backBuffer.resource.Reset();
+		}
+		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+		ThrowIfFailed(swapChain.dxgiSwapChain4->GetDesc(&swapChainDesc));
+		ThrowIfFailed(swapChain.dxgiSwapChain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT,
+			this->size.x, this->size.y,
+			swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
+
+		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
+		swapChain.UpdateBackBuffers();
+	}
+}
 
 void Window::SetShowWindow(bool show) {
 	ShowWindow(hWnd, show ? SW_SHOW : SW_HIDE);
