@@ -7,10 +7,10 @@
 #include "ThreadPool.h"
 
 
-/** D3D12 library context singleton */
+/** D3D12 library context */
 struct Context {
 	static Context* Create(HINSTANCE hInst, int icon);
-	void Destroy();
+	static void Destroy(Context* context);
 
 	struct Window* CreateWindow(const wchar_t* title, ivec2 size, bool vSync = true);
 	void DestroyWindow(Window* window);
@@ -24,11 +24,15 @@ struct Context {
 	CommandQueue& CommandQueueCopy() { return commandQueueCopy; }
 	ThreadPool& GetThreadPool() { return threadPool; }
 
-private:
+	// TODO: delete copy/move ctors and assignemnt
 
-	HINSTANCE hInstance;
-	Adapter adapter;
+private:
+	Context() = default;
+	~Context() = default;
+
 	Device device;
+	Adapter adapter;
+	HINSTANCE hInstance;
 
 	CommandQueue commandQueueDirect{};
 	CommandQueue commandQueueCompute{};

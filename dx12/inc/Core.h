@@ -16,6 +16,7 @@ using Microsoft::WRL::ComPtr;
 
 // DirectX headers
 #include <dxgi1_6.h>
+#include <dxgidebug.h> 
 #include <d3dcompiler.h>
 #include <directx/d3d12.h>
 #include <directx/d3dx12.h>
@@ -55,6 +56,8 @@ using ptr_t = uintptr_t;
 #define GLM_FORCE_AVX2
 #define GLM_FORCE_SILENT_WARNINGS
 #include <glm/glm.hpp>
+#include <glm/gtc/type_ptr.hpp>
+#include <glm/gtc/matrix_transform.hpp>
 
 using glm::vec2;
 using glm::vec3;

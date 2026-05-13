@@ -1,14 +1,16 @@
 #include "DX12PCH.h"
 #include "CommandQueue.h"
 #include "Context.h"
+#include "RootSignature.h"
+#include "PipelineState.h"
 
 CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type) {
 	CommandList* commandList = new CommandList;
 	commandList->type = type;
 
 	Device& device = context->GetDevice();
-	ThrowIfFailed(device.dxgiDevice2->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
-	ThrowIfFailed(device.dxgiDevice2->CreateCommandList(
+	ThrowIfFailed(device.d3d12Device2->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
+	ThrowIfFailed(device.d3d12Device2->CreateCommandList(
 		0,
 		type,
 		commandList->d3dCommandAllocator.Get(),
@@ -27,22 +29,45 @@ void CommandList::Reset() {
 	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
 }
 
-void CommandList::Transition(Resource* resource, ResourceState before, ResourceState after) {
+void CommandList::Transition(Resource* d3d12Resource, ResourceState before, ResourceState after) {
 	CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-		resource->resource.Get(), 
+		d3d12Resource->d3d12Resource.Get(), 
 		GetD3D12ResourceState(before), 
 		GetD3D12ResourceState(after));
 
 	d3dCommandList->ResourceBarrier(1, &barrier);
 }
 
-void CommandList::ClearRTV(Resource* resource, FLOAT* clearColor) {
-	Transition(resource, RS_PRESENT, RS_RENDER_TARGET);
-	d3dCommandList->ClearRenderTargetView(resource->cpuHandle, clearColor, 0, nullptr);
+void CommandList::ClearRTV(Resource* d3d12Resource, FLOAT* clearColor) {
+	Transition(d3d12Resource, RS_PRESENT, RS_RENDER_TARGET);
+	d3dCommandList->ClearRenderTargetView(d3d12Resource->cpuHandle, clearColor, 0, nullptr);
 }
 
-void CommandList::ClearDSV(Resource* resource, FLOAT depth)
-{
+void CommandList::ClearDSV(Resource* d3d12Resource, FLOAT depth, u8 stencil) {
+	//Transition(d3d12Resource, RS_DEPTH_READ, RS_DEPTH_WRITE);
+	d3dCommandList->ClearDepthStencilView(d3d12Resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH, 
+		depth, stencil, 0, nullptr);
+}
+
+void CommandList::SetPipelineState(PipelineState& pipelineState) {
+	d3dCommandList->SetPipelineState(pipelineState.d3d12PipelineState.Get());
+}
+
+void CommandList::SetRootSignature(RootSignature& rootSignature) {
+	d3dCommandList->SetGraphicsRootSignature(rootSignature.d3d12RootSignature.Get());
+}
+
+void CommandList::SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY primitiveTopology) {
+	d3dCommandList->IASetPrimitiveTopology(primitiveTopology);
+}
+
+void CommandList::SetViewport(const D3D12_VIEWPORT& viewport) {
+	d3dCommandList->RSSetViewports(1, &viewport);
+
+}
+
+void CommandList::SetScissorRect(const D3D12_RECT& scissorRect) {
+	d3dCommandList->RSSetScissorRects(1, &scissorRect);
 }
 
 void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
@@ -55,8 +80,8 @@ void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
 		.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
 		.NodeMask = 0,
 	};
-	ThrowIfFailed(device.dxgiDevice2->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3dCommandQueue)));
-	ThrowIfFailed(device.dxgiDevice2->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3dFence)));
+	ThrowIfFailed(device.d3d12Device2->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3dCommandQueue)));
+	ThrowIfFailed(device.d3d12Device2->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3dFence)));
 
 	// Set name
 	const wchar_t* name = nullptr;
@@ -147,7 +172,7 @@ void CommandQueue::WaitForInFlightCommandListsTask() {
 void CommandQueue::WaitForInFlightCommandLists() {
 	std::scoped_lock lock(inFlightMutex);
 	CommandListEntry entry;
-	while (!inFlightCommandLists.TryPop(entry)) {
+	while (inFlightCommandLists.TryPop(entry)) {
 		WaitForFenceValue(entry.fenceValue);
 		entry.commandList->Reset();
 		availableCommandLists.Push(entry.commandList);

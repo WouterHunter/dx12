@@ -10,7 +10,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	// Initialize
 	CommandLineArgs args = ParseCommandLineArguments(lpCmdLine);
 	Context* context = Context::Create(hInstance, IDI_ICON1);
-	Window* window = context->CreateWindow(L"DX12 Lib Test Window", { args.width, args.height }, args.vSync);
+	Window* window = context->CreateWindow(L"DX12 - Clear Screen", { args.width, args.height }, args.vSync);
 
 	// Show window and main loop
 	window->SetShowWindow(true);
@@ -36,7 +36,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	// Cleanup
 	context->DestroyWindow(window);
-	context->Destroy();
+	Context::Destroy(context);
 
 	return 0;
 }

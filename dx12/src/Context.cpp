@@ -4,6 +4,7 @@
 #include <shlwapi.h>
 #include <fcntl.h> 
 #include <corecrt_io.h>
+#include "RootSignature.h"
 
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12 Render Window";
 
@@ -169,7 +170,7 @@ namespace {
 		swapChain.frameLatencyWaitHandle = swapChain.dxgiSwapChain4->GetFrameLatencyWaitableObject();
 		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
 		swapChain.rtvVDescriptorHeap = CreateDescriptorHeap(context->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, SWAP_CHAIN_BUFFER_COUNT);
-		swapChain.rtvDescriptorSize = context->GetDevice().dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+		swapChain.rtvDescriptorSize = context->GetDevice().d3d12Device2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 		swapChain.allowTearing = CheckTearingSupport();
 
 		swapChain.UpdateBackBuffers();
@@ -190,6 +191,9 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	ComPtr<ID3D12Debug> debugInterface;
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
 	debugInterface->EnableDebugLayer();
+
+	// Report live objects after exiting the application.
+	std::atexit(ReportLiveObjects);
 #endif
 
 	// Register a window class for creating our render window with.
@@ -214,6 +218,7 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 		__debugbreak();
 	}
 
+	// Create core objects
 	context->adapter = Adapter::Create(false);
 	context->device = Device::Create(context->adapter);
 
@@ -224,13 +229,15 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	return context;
 }
 
-void Context::Destroy() {
+void Context::Destroy(Context* context) {
 
-	FlushAllCommandQueues();
+	context->FlushAllCommandQueues();
 
-	commandQueueDirect.ClearCommandLists();
-	commandQueueCompute.ClearCommandLists();
-	commandQueueCopy.ClearCommandLists();
+	context->commandQueueDirect.ClearCommandLists();
+	context->commandQueueCompute.ClearCommandLists();
+	context->commandQueueCopy.ClearCommandLists();
+
+	delete context;
 }
 
 Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {

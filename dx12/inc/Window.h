@@ -12,6 +12,7 @@ struct DescriptorHeap {
 	ComPtr<ID3D12DescriptorHeap> d3dDescriptorHeap;
 };
 
+DescriptorHeap CreateDescriptorHeap(const Device& device, const D3D12_DESCRIPTOR_HEAP_DESC& desc);
 DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors);
 
 

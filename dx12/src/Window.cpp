@@ -3,14 +3,19 @@
 #include "Context.h"
 
 
+DescriptorHeap CreateDescriptorHeap(const Device& device, const D3D12_DESCRIPTOR_HEAP_DESC& desc) {
+	DescriptorHeap heap = {};
+	ThrowIfFailed(device.d3d12Device2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
+	return heap;
+}
+
 DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors) {
 	DescriptorHeap heap = {};
 	D3D12_DESCRIPTOR_HEAP_DESC desc = {
 		.Type = type,
 		.NumDescriptors = numDescriptors,
 	};
-	ThrowIfFailed(device.dxgiDevice2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
-
+	ThrowIfFailed(device.d3d12Device2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
 	return heap;
 }
 
@@ -34,14 +39,14 @@ void SwapChain::Wait() {
 
 void SwapChain::UpdateBackBuffers() {
 	const Device& device = context->GetDevice();
-	u32 rtvDescriptorSize = device.dxgiDevice2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	u32 rtvDescriptorSize = device.d3d12Device2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvVDescriptorHeap.d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
 		Resource& backBuffer = backBuffers[i];
 		backBuffer.cpuHandle = rtvHandle;
-		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer.resource)));
-		ThrowIfFailed(backBuffer.resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
-		device.dxgiDevice2->CreateRenderTargetView(backBuffer.resource.Get(), nullptr, rtvHandle);
+		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer.d3d12Resource)));
+		ThrowIfFailed(backBuffer.d3d12Resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
+		device.d3d12Device2->CreateRenderTargetView(backBuffer.d3d12Resource.Get(), nullptr, rtvHandle);
 		rtvHandle.Offset((INT)rtvDescriptorSize);
 	}
 }
@@ -65,7 +70,7 @@ void Window::Resize(ivec2 size) {
 		for (Resource& backBuffer : swapChain.backBuffers) {
 			// Any references to the back buffers must be released
 			// before the swap chain can be resized.
-			backBuffer.resource.Reset();
+			backBuffer.d3d12Resource.Reset();
 		}
 		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
 		ThrowIfFailed(swapChain.dxgiSwapChain4->GetDesc(&swapChainDesc));

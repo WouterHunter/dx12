@@ -29,3 +29,13 @@ inline CommandLineArgs ParseCommandLineArguments(LPWSTR cmdLine) {
 	LocalFree((HLOCAL)argv); // Free memory allocated by CommandLineToArgvW
 	return args;
 }
+
+// Report all live objects after context destruction.
+inline void ReportLiveObjects() {
+#ifdef _DEBUG
+	IDXGIDebug1* debugInterface;
+	DXGIGetDebugInterface1(0, IID_PPV_ARGS(&debugInterface));
+	debugInterface->ReportLiveObjects(DXGI_DEBUG_ALL, DXGI_DEBUG_RLO_IGNORE_INTERNAL);
+	debugInterface->Release();
+#endif
+}

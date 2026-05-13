@@ -4,6 +4,8 @@
 
 constexpr u32 COMMAND_QUEUE_LIST_COUNT = 5;
 
+struct PipelineState;
+struct RootSignature;
 
 /** Command list */
 struct CommandList {
@@ -15,13 +17,21 @@ struct CommandList {
 	void Close();
 	void Reset();
 
-	void Transition(Resource* resource, ResourceState before, ResourceState after);
+	void Transition(Resource* d3d12Resource, ResourceState before, ResourceState after);
 
 	// Clear a render target view.
-	void ClearRTV(Resource* resource, FLOAT* clearColor);
+	void ClearRTV(Resource* d3d12Resource, FLOAT* clearColor);
 
 	// Clear the depth of a depth-stencil view.
-	void ClearDSV(Resource* resource, FLOAT depth = 1.0f);
+	void ClearDSV(Resource* d3d12Resource, FLOAT depth = 1.0f, u8 stencil = 0);
+
+	void SetPipelineState(PipelineState& pipelineState);
+	void SetRootSignature(RootSignature& rootSignature);
+	void SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY primitiveTopology);
+
+	void SetViewport(const D3D12_VIEWPORT& viewport);
+	void SetScissorRect(const D3D12_RECT& scissorRect);
+
 
 	D3D12_COMMAND_LIST_TYPE type;
 	ComPtr<ID3D12CommandAllocator> d3dCommandAllocator;

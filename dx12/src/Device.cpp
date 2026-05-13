@@ -36,12 +36,12 @@ Adapter Adapter::Create(bool useWarp) {
 Device Device::Create(const Adapter& adapter) {
 	Device device = {};
 
-	ThrowIfFailed(D3D12CreateDevice(adapter.dxgiAdapter4.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device.dxgiDevice2)));
+	ThrowIfFailed(D3D12CreateDevice(adapter.dxgiAdapter4.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device.d3d12Device2)));
 
 	// Enable debug messages in debug mode.
 #ifdef _DEBUG
 	ComPtr<ID3D12InfoQueue> infoQueue;
-	if (SUCCEEDED(device.dxgiDevice2.As(&infoQueue))) {
+	if (SUCCEEDED(device.d3d12Device2.As(&infoQueue))) {
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true));
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true));
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true));
@@ -70,6 +70,15 @@ Device Device::Create(const Adapter& adapter) {
 		ThrowIfFailed(infoQueue->PushStorageFilter(&filter));
 	}
 #endif
+
+	// Check features.
+	D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData;
+	featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+	if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData,
+		sizeof(D3D12_FEATURE_DATA_ROOT_SIGNATURE)))) {
+		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+	}
+	device.highestRootSigVersion = featureData.HighestVersion;
 
 	return device;
 }
