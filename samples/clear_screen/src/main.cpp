@@ -1,6 +1,7 @@
 #include "Core.h"
 #include "Utils.h"
 #include "Context.h"
+#include "ResourceStateTracker.h"
 
 #include "../res/resource.h" // icon resource
 
@@ -17,21 +18,20 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	while (window->PollEvents()) {
 		CommandQueue& commandQueue = context->CommandQueueDirect();
 		CommandList* commandList = commandQueue.GetCommandList();
-		Resource* backBuffer = window->swapChain.GetBackBuffer();
+		Resource* backBuffer = window->swapChain.GetCurrentBackBuffer();
 
 		// Clear the render target. 
 		FLOAT clearColor[] = { 0.1f, 0.15f, 0.15f, 1.0f };
 		commandList->ClearRTV(backBuffer, clearColor);
 
 		// Execute, present and flush
-		{
-			commandList->Transition(backBuffer, RS_RENDER_TARGET, RS_PRESENT);
-			commandQueue.ExecuteCommandList(commandList);
-
-			window->swapChain.Present();
-
-			commandQueue.Flush();
-		}
+		commandList->TextureBarrier(backBuffer, SUBRESOURCE_ALL,
+			D3D12_BARRIER_SYNC_NONE,
+			D3D12_BARRIER_ACCESS_NO_ACCESS,
+			D3D12_BARRIER_LAYOUT_PRESENT);
+		commandQueue.ExecuteCommandList(commandList);
+		window->swapChain.Present();
+		commandQueue.Flush();
 	}
 
 	// Cleanup

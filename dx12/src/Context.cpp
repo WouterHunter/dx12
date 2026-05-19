@@ -225,6 +225,7 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	context->commandQueueDirect.Init(context, D3D12_COMMAND_LIST_TYPE_DIRECT);
 	context->commandQueueCompute.Init(context, D3D12_COMMAND_LIST_TYPE_COMPUTE);
 	context->commandQueueCopy.Init(context, D3D12_COMMAND_LIST_TYPE_COPY);
+	context->globalLayoutTracker.Init(context);
 
 	return context;
 }
@@ -260,6 +261,14 @@ Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
 
 	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
 	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
+
+	// Query performance frequency and start time
+	LARGE_INTEGER performanceFreq, startTime;
+	QueryPerformanceFrequency(&performanceFreq);
+	QueryPerformanceCounter(&startTime);
+	window->invPerfFreq = 1.0 / (f64)performanceFreq.QuadPart;
+	window->startTime = startTime.QuadPart;
+	window->lastTime = startTime.QuadPart;
 
 	CreateConsole(); // Create debug console while using WINDOWS subsystem
 	CreateWindowSwapChain(window);

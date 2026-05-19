@@ -54,18 +54,32 @@ struct VertexPosColor {
 	vec3 color;
 };
 
-static VertexPosColor TRIANGLE_VERTICES[] = {
-	{ .position = { 0.0f, -0.5f, -0.5f }, .color = { 1, 0, 0 } },
-	{ .position = { 0.0f,  0.0f,  0.5f }, .color = { 0, 1, 0 } },
-	{ .position = { 0.0f,  0.5f, -0.5f }, .color = { 0, 0, 1 } },
+static const VertexPosColor CUBE_VERTICES[8] = {
+	{ .position = {  1.0f, -1.0f,  1.0f },	.color = { 1.0f, 0.0f, 1.0f } },  // 7
+	{ .position = {  1.0f,  1.0f,  1.0f },	.color = { 1.0f, 1.0f, 1.0f } }, // 6
+	{ .position = { -1.0f,  1.0f,  1.0f },	.color = { 0.0f, 1.0f, 1.0f } }, // 5
+	{ .position = { -1.0f, -1.0f,  1.0f },	.color = { 0.0f, 0.0f, 1.0f } }, // 4
+	{ .position = {  1.0f, -1.0f, -1.0f },	.color = { 1.0f, 0.0f, 0.0f } }, // 3
+	{ .position = {  1.0f,  1.0f, -1.0f },	.color = { 1.0f, 1.0f, 0.0f } }, // 2
+	{ .position = { -1.0f,  1.0f, -1.0f },	.color = { 0.0f, 1.0f, 0.0f } }, // 1
+	{ .position = { -1.0f, -1.0f, -1.0f },	.color = { 0.0f, 0.0f, 0.0f } }, // 0
 };
-static u16 TRIANGLE_INDICES[] = { 0, 1, 2 };
+
+static const u16 CUBE_INDICES[36] =
+{
+	0, 1, 2, 0, 2, 3,
+	4, 6, 5, 4, 7, 6,
+	4, 5, 1, 4, 1, 0,
+	3, 2, 6, 3, 6, 7,
+	1, 5, 6, 1, 6, 2,
+	4, 0, 3, 4, 3, 7
+};
 
 static const f32 fov = glm::radians(90.0f);
 static const f32 nearPlane = 0.01f;
 static const f32 farPlane = 100.f;
 
-static const vec3 eye = { -1, 0, 0 };
+static const vec3 eye = { -2, -2, 2 };
 static const vec3 center = { 0, 0, 0 };
 static const vec3 up = { 0, 0, 1 };
 
@@ -75,24 +89,24 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	// Initialize
 	CommandLineArgs args = ParseCommandLineArguments(lpCmdLine);
 	Context* context = Context::Create(hInstance, IDI_ICON1);
-	Window* window = context->CreateWindow(L"DX12 - Hello Triangle", { args.width, args.height }, args.vSync);
+	Window* window = context->CreateWindow(L"DX12 - Cube", { args.width, args.height }, args.vSync);
 	CommandQueue& commandQueue = context->CommandQueueDirect();
 	CommandList* commandList = commandQueue.GetCommandList();
 
 	// Load triangle vertex and index data
 	Resource vertexBuffer, indexBuffer;
 	ComPtr<ID3D12Resource> uploadVertexBuffer, uploadIndexBuffer;
-	CopyResource(context, commandList, &vertexBuffer, uploadVertexBuffer, _countof(TRIANGLE_VERTICES), sizeof(VertexPosColor), TRIANGLE_VERTICES);
-	CopyResource(context, commandList, &indexBuffer, uploadIndexBuffer, _countof(TRIANGLE_INDICES), sizeof(u16), TRIANGLE_INDICES);
+	CopyResource(context, commandList, &vertexBuffer, uploadVertexBuffer, _countof(CUBE_VERTICES), sizeof(VertexPosColor), CUBE_VERTICES);
+	CopyResource(context, commandList, &indexBuffer, uploadIndexBuffer, _countof(CUBE_INDICES), sizeof(u16), CUBE_INDICES);
 
 	D3D12_VERTEX_BUFFER_VIEW vertexBufferView = {
 		.BufferLocation = vertexBuffer.d3d12Resource->GetGPUVirtualAddress(),
-		.SizeInBytes = sizeof(TRIANGLE_VERTICES),
+		.SizeInBytes = sizeof(CUBE_VERTICES),
 		.StrideInBytes = sizeof(VertexPosColor),
 	};
 	D3D12_INDEX_BUFFER_VIEW indexBufferView{
 		.BufferLocation = indexBuffer.d3d12Resource->GetGPUVirtualAddress(),
-		.SizeInBytes = sizeof(TRIANGLE_INDICES),
+		.SizeInBytes = sizeof(CUBE_INDICES),
 		.Format = DXGI_FORMAT_R16_UINT,
 	};
 	// Upload the buffers to the GPU
@@ -100,8 +114,8 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	// Vertex input layout
 	D3D12_INPUT_ELEMENT_DESC inputLayout[] = {
-		{ 
-			.SemanticName = "POSITION", 
+		{
+			.SemanticName = "POSITION",
 			.SemanticIndex = 0,
 			.Format = DXGI_FORMAT_R32G32B32_FLOAT,
 			.InputSlot = 0,
@@ -121,7 +135,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	};
 
 	// Root signature
-	D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags = 
+	D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
 		D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
 		D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
 		D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
@@ -130,7 +144,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	CD3DX12_ROOT_PARAMETER1 rootParams[1] = {};
 	rootParams[0].InitAsConstants(sizeof(mat4) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
-	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc(_countof(rootParams), rootParams, 
+	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc(_countof(rootParams), rootParams,
 		0, nullptr, rootSignatureFlags);
 
 	RootSignature rootSignature = RootSignature::Create(context, rootSignatureDesc.Desc_1_1);
@@ -153,7 +167,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		CD3DX12_PIPELINE_STATE_STREAM_PS                    pixelShader;
 		CD3DX12_PIPELINE_STATE_STREAM_DEPTH_STENCIL_FORMAT  dsvFormat;
 		CD3DX12_PIPELINE_STATE_STREAM_RENDER_TARGET_FORMATS rtvFormats;
-		CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER            rasterizer;
+		CD3DX12_PIPELINE_STATE_STREAM_RASTERIZER			rasterizer;
 	} pipelineStateStream = {
 		.rootSignature = rootSignature.d3d12RootSignature.Get(),
 		.inputLayout = D3D12_INPUT_LAYOUT_DESC{ inputLayout, _countof(inputLayout) },
@@ -222,7 +236,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		auto rtv = backBuffer->cpuHandle;
 
 		// Clear the render targets.
-		{ 
+		{
 			FLOAT clearColor[] = { 0.1f, 0.15f, 0.15f, 1.0f };
 			commandList->ClearRTV(backBuffer, clearColor);
 			commandList->ClearDSV(&depthBuffer);
@@ -239,15 +253,16 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		d3d12CommandList->OMSetRenderTargets(1, &rtv, FALSE, &depthBuffer.cpuHandle);
 
 		// Update the model-view-projection matrix.
+		f32 angle = (f32)window->totalTime * 90;
+		mat4 model = glm::rotate(mat4{ 1 }, glm::radians(angle), vec3{ 0, 0, 1 });
 		f32 aspect = viewport.Width / viewport.Height;
-		mat4 model = mat4(1.0f);
 		mat4 proj = glm::perspective(fov, aspect, nearPlane, farPlane);
 		mat4 view = glm::lookAt(eye, center, up);
 		mat4 mvp = proj * view * model;
 		d3d12CommandList->SetGraphicsRoot32BitConstants(0, sizeof(mat4) / 4, glm::value_ptr(mvp), 0);
 
 		// Draw the triangle
-		d3d12CommandList->DrawIndexedInstanced(_countof(TRIANGLE_INDICES), 1, 0, 0, 0);
+		d3d12CommandList->DrawIndexedInstanced(_countof(CUBE_INDICES), 1, 0, 0, 0);
 
 		// Execute, present and flush
 		commandList->TextureBarrier(backBuffer, SUBRESOURCE_ALL,

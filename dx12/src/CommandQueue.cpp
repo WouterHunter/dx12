@@ -4,18 +4,29 @@
 #include "RootSignature.h"
 #include "PipelineState.h"
 
-CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type) {
+
+CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name) {
 	CommandList* commandList = new CommandList;
 	commandList->type = type;
 
 	Device& device = context->GetDevice();
+	assert(device.supportEnhancedBarriers && "Enhanced Barriers required but not supported by this device.");
+
 	ThrowIfFailed(device.d3d12Device2->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
+
+	ComPtr<ID3D12GraphicsCommandList> baseCL;
 	ThrowIfFailed(device.d3d12Device2->CreateCommandList(
 		0,
 		type,
 		commandList->d3dCommandAllocator.Get(),
 		nullptr,
-		IID_PPV_ARGS(&commandList->d3dCommandList)));
+		IID_PPV_ARGS(&baseCL)));
+	ThrowIfFailed(baseCL.As(&commandList->d3dCommandList));
+
+	if (name) {
+		ThrowIfFailed(commandList->d3dCommandAllocator->SetName(name));
+		ThrowIfFailed(commandList->d3dCommandList->SetName(name));
+	}
 
 	return commandList;
 }
@@ -27,25 +38,23 @@ void CommandList::Close() {
 void CommandList::Reset() {
 	ThrowIfFailed(d3dCommandAllocator->Reset());
 	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
+	resourceStateTracker.Reset();
 }
 
-void CommandList::Transition(Resource* d3d12Resource, ResourceState before, ResourceState after) {
-	CD3DX12_RESOURCE_BARRIER barrier = CD3DX12_RESOURCE_BARRIER::Transition(
-		d3d12Resource->d3d12Resource.Get(), 
-		GetD3D12ResourceState(before), 
-		GetD3D12ResourceState(after));
-
-	d3dCommandList->ResourceBarrier(1, &barrier);
+void CommandList::ClearRTV(Resource* resource, FLOAT* clearColor) {
+	TextureBarrier(resource, 0xFFFFFFFF,
+		D3D12_BARRIER_SYNC_RENDER_TARGET,
+		D3D12_BARRIER_ACCESS_RENDER_TARGET,
+		D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+	d3dCommandList->ClearRenderTargetView(resource->cpuHandle, clearColor, 0, nullptr);
 }
 
-void CommandList::ClearRTV(Resource* d3d12Resource, FLOAT* clearColor) {
-	Transition(d3d12Resource, RS_PRESENT, RS_RENDER_TARGET);
-	d3dCommandList->ClearRenderTargetView(d3d12Resource->cpuHandle, clearColor, 0, nullptr);
-}
-
-void CommandList::ClearDSV(Resource* d3d12Resource, FLOAT depth, u8 stencil) {
-	//Transition(d3d12Resource, RS_DEPTH_READ, RS_DEPTH_WRITE);
-	d3dCommandList->ClearDepthStencilView(d3d12Resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH, 
+void CommandList::ClearDSV(Resource* resource, FLOAT depth, u8 stencil) {
+	TextureBarrier(resource, 0xFFFFFFFF,
+		D3D12_BARRIER_SYNC_DEPTH_STENCIL,
+		D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
+		D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+	d3dCommandList->ClearDepthStencilView(resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH,
 		depth, stencil, 0, nullptr);
 }
 
@@ -68,6 +77,38 @@ void CommandList::SetViewport(const D3D12_VIEWPORT& viewport) {
 
 void CommandList::SetScissorRect(const D3D12_RECT& scissorRect) {
 	d3dCommandList->RSSetScissorRects(1, &scissorRect);
+}
+
+void CommandList::TextureBarrier(
+	Resource* resource,
+	u32 subresource,
+	D3D12_BARRIER_SYNC syncAfter,
+	D3D12_BARRIER_ACCESS accessAfter,
+	D3D12_BARRIER_LAYOUT layoutAfter,
+	bool discard
+) {
+	resourceStateTracker.TransitionTexture(
+		resource,
+		subresource,
+		syncAfter,
+		accessAfter,
+		layoutAfter,
+		discard
+	);
+	resourceStateTracker.FlushImmediateBarriers(this);
+}
+
+void CommandList::BufferBarrier(
+	Resource* resource,
+	D3D12_BARRIER_SYNC syncAfter,
+	D3D12_BARRIER_ACCESS accessAfter
+) {
+	resourceStateTracker.TransitionBuffer(
+		resource,
+		syncAfter,
+		accessAfter
+	);
+	resourceStateTracker.FlushImmediateBarriers(this);
 }
 
 void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
@@ -97,7 +138,16 @@ void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
 CommandList* CommandQueue::GetCommandList() {
 	CommandList* commandList = nullptr;
 	if (!availableCommandLists.TryPop(commandList)) {
-		commandList = CommandList::Create(context, type);
+		
+		std::wstring name;
+		switch (type) {
+		case D3D12_COMMAND_LIST_TYPE_DIRECT: name = L"DirectCommandList["; break;
+		case D3D12_COMMAND_LIST_TYPE_COMPUTE: name = L"ComputeCommandList["; break;
+		case D3D12_COMMAND_LIST_TYPE_COPY: name = L"CopyCommandList["; break;
+		}
+		name += std::to_wstring(numCommandLists++) + L']';
+
+		commandList = CommandList::Create(context, type, name.c_str());
 	}
 	return commandList;
 }
@@ -118,14 +168,30 @@ u64 CommandQueue::ExecuteCommandList(CommandList* commandList) {
 u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 
 	// Gather command lists that need to be executed.
-	std::vector<ID3D12CommandList*> d3d12CommandLists(count);
+	std::vector<ID3D12CommandList*> d3d12CommandLists;
+	d3d12CommandLists.reserve(count + 1); // +1 for potential prologue
+
+	// Resolve pending barriers from all command lists being submitted
+	std::vector<ResourceStateTracker*> trackers(count);
+	for (u32 idx = 0; idx < count; ++idx) {
+		trackers[idx] = &commandLists[idx]->resourceStateTracker;
+	}
+
+	// Commit final layout states to global tracker
+	GlobalLayoutTracker& globalTracker = context->GetGlobalLayoutTracker();
+	ID3D12GraphicsCommandList7* prologue = globalTracker.ResolvePendingBarriers(trackers);
+	if (prologue) {
+		d3d12CommandLists.push_back(prologue);
+	}
+	globalTracker.CommitFinalLayoutStates(trackers);
+
+	// Close and execute the command lists
 	for (u32 idx = 0; idx < count; ++idx) {
 		CommandList* commandList = commandLists[idx];
 		commandList->Close();
-		d3d12CommandLists[idx] = commandList->d3dCommandList.Get();
+		d3d12CommandLists.push_back(commandList->d3dCommandList.Get());
 	}
-
-	d3dCommandQueue->ExecuteCommandLists(count, d3d12CommandLists.data());
+	d3dCommandQueue->ExecuteCommandLists((u32)d3d12CommandLists.size(), d3d12CommandLists.data());
 	u64 fenceValue = Signal();
 
 	// Queue command lists for reuse.
@@ -134,6 +200,7 @@ u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 		inFlightCommandLists.Push({ commandList, fenceValue });
 	}
 
+	// Run a task that waits for the command lists to finish
 	context->GetThreadPool().PushTask(&CommandQueue::WaitForInFlightCommandListsTask, this);
 
 	return fenceValue;

@@ -22,7 +22,8 @@ struct SwapChain {
 	void Present();
 	void Wait();
 	void UpdateBackBuffers();
-	Resource* GetBackBuffer();
+	D3D12_RT_FORMAT_ARRAY GetRenderTargetFormats() const;
+	Resource* GetCurrentBackBuffer();
 
 	Context* context;
 	ComPtr<IDXGISwapChain4> dxgiSwapChain4;

@@ -1,6 +1,7 @@
 #pragma once
 #include "ThreadSafeQueue.h"
 #include "Resource.h"
+#include "ResourceStateTracker.h"
 
 constexpr u32 COMMAND_QUEUE_LIST_COUNT = 5;
 
@@ -12,18 +13,16 @@ struct CommandList {
 
 	// Try to get an existing available command list.
 	// If none are available, a new one will be created.
-	static CommandList* Create(struct Context* context, D3D12_COMMAND_LIST_TYPE type);
+	static CommandList* Create(struct Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name = nullptr);
 
 	void Close();
 	void Reset();
 
-	void Transition(Resource* d3d12Resource, ResourceState before, ResourceState after);
-
 	// Clear a render target view.
-	void ClearRTV(Resource* d3d12Resource, FLOAT* clearColor);
+	void ClearRTV(Resource* resource, FLOAT* clearColor);
 
 	// Clear the depth of a depth-stencil view.
-	void ClearDSV(Resource* d3d12Resource, FLOAT depth = 1.0f, u8 stencil = 0);
+	void ClearDSV(Resource* resource, FLOAT depth = 1.0f, u8 stencil = 0);
 
 	void SetPipelineState(PipelineState& pipelineState);
 	void SetRootSignature(RootSignature& rootSignature);
@@ -33,9 +32,26 @@ struct CommandList {
 	void SetScissorRect(const D3D12_RECT& scissorRect);
 
 
+	// Enhanced Barrier methods
+	void TextureBarrier(
+		Resource* resource,
+		u32 subresource,
+		D3D12_BARRIER_SYNC syncAfter,
+		D3D12_BARRIER_ACCESS accessAfter,
+		D3D12_BARRIER_LAYOUT layoutAfter,
+		bool discard = false
+	);
+
+	void BufferBarrier(
+		Resource* resource,
+		D3D12_BARRIER_SYNC syncAfter,
+		D3D12_BARRIER_ACCESS accessAfter
+	);
+
 	D3D12_COMMAND_LIST_TYPE type;
 	ComPtr<ID3D12CommandAllocator> d3dCommandAllocator;
-	ComPtr<ID3D12GraphicsCommandList> d3dCommandList;
+	ComPtr<ID3D12GraphicsCommandList7> d3dCommandList;
+	ResourceStateTracker resourceStateTracker;
 };
 
 /** Command queue */
@@ -71,4 +87,5 @@ struct CommandQueue {
 
 	ThreadSafeQueue<CommandList*> availableCommandLists;
 	ThreadSafeQueue<CommandListEntry> inFlightCommandLists;
+	u32 numTotalCommandLists;
 };

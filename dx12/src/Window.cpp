@@ -1,6 +1,7 @@
 #include "DX12PCH.h"
 #include "Window.h"
 #include "Context.h"
+#include "ResourceStateTracker.h"
 
 
 DescriptorHeap CreateDescriptorHeap(const Device& device, const D3D12_DESCRIPTOR_HEAP_DESC& desc) {
@@ -48,10 +49,20 @@ void SwapChain::UpdateBackBuffers() {
 		ThrowIfFailed(backBuffer.d3d12Resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
 		device.d3d12Device2->CreateRenderTargetView(backBuffer.d3d12Resource.Get(), nullptr, rtvHandle);
 		rtvHandle.Offset((INT)rtvDescriptorSize);
+
+		// Register back buffers with the global layout tracker (initial layout is PRESENT/COMMON)
+		context->GetGlobalLayoutTracker().Register(
+			&backBuffer, D3D12_BARRIER_LAYOUT_PRESENT, 1);
 	}
 }
 
-Resource* SwapChain::GetBackBuffer() {
+D3D12_RT_FORMAT_ARRAY SwapChain::GetRenderTargetFormats() const {
+	const Resource* backBuffer = backBuffers + currentBackBufferIndex;
+	D3D12_RT_FORMAT_ARRAY rtFormats = backBuffer->GetRenderTargetFormats();
+	return rtFormats;
+}
+
+Resource* SwapChain::GetCurrentBackBuffer() {
 	Resource* backBuffer = backBuffers + currentBackBufferIndex;
 	return backBuffer;
 }
@@ -68,6 +79,10 @@ void Window::Resize(ivec2 size) {
 		context->FlushAllCommandQueues();
 
 		for (Resource& backBuffer : swapChain.backBuffers) {
+			// Unregister from layout tracker before releasing
+			if (backBuffer.d3d12Resource) {
+				context->GetGlobalLayoutTracker().Unregister(&backBuffer);
+			}
 			// Any references to the back buffers must be released
 			// before the swap chain can be resized.
 			backBuffer.d3d12Resource.Reset();

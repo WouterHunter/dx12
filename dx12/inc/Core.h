@@ -26,14 +26,17 @@ using Microsoft::WRL::ComPtr;
 #include <filesystem>
 #include <iostream>
 #include <mutex>
+#include <queue>
+#include <shared_mutex>
 #include <thread>
+#include <vector>
+#include <unordered_map>
 
 namespace fs = std::filesystem;
 using std::chrono::nanoseconds;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
 using std::chrono::seconds;
-
 
 using i8 = int8_t;
 using i16 = int16_t;
@@ -54,6 +57,7 @@ using size_t = uint64_t;
 using ptr_t = uintptr_t;
 
 #define GLM_FORCE_AVX2
+#define GLM_FORCE_DEPTH_ZERO_TO_ONE
 #define GLM_FORCE_SILENT_WARNINGS
 #include <glm/glm.hpp>
 #include <glm/gtc/type_ptr.hpp>
@@ -70,6 +74,7 @@ using glm::ivec2;
 using glm::ivec3;
 using glm::ivec4;
 
+constexpr u32 INVALID_INDEX = ~0u;
 constexpr u64 INVALID_FENCE_VALUE = ~0ull;
 
 #ifdef _DEBUG

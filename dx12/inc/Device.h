@@ -15,4 +15,5 @@ struct Device {
 
 	ComPtr<ID3D12Device2> d3d12Device2;
 	D3D_ROOT_SIGNATURE_VERSION highestRootSigVersion;
+	bool supportEnhancedBarriers;
 };

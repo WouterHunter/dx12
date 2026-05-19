@@ -5,6 +5,7 @@
 #include "CommandQueue.h"
 #include "Window.h"
 #include "ThreadPool.h"
+#include "ResourceStateTracker.h"
 
 
 /** D3D12 library context */
@@ -23,6 +24,7 @@ struct Context {
 	CommandQueue& CommandQueueCompute() { return commandQueueCompute; }
 	CommandQueue& CommandQueueCopy() { return commandQueueCopy; }
 	ThreadPool& GetThreadPool() { return threadPool; }
+	GlobalLayoutTracker& GetGlobalLayoutTracker() { return globalLayoutTracker; }
 
 	// TODO: delete copy/move ctors and assignemnt
 
@@ -39,4 +41,5 @@ private:
 	CommandQueue commandQueueCopy{};
 
 	ThreadPool threadPool;
+	GlobalLayoutTracker globalLayoutTracker;
 };

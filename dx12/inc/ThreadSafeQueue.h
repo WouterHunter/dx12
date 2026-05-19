@@ -1,6 +1,4 @@
 #pragma once
-#include <mutex>
-#include <queue>
 
 template<class T>
 class ThreadSafeQueue
@@ -51,13 +49,11 @@ public:
 
 	[[nodiscard]] bool Empty() const
 	{
-		std::unique_lock lock(m_Mutex);
 		return m_DataQueue.empty();
 	}
 
 	[[nodiscard]] size_t Size() const
 	{
-		std::unique_lock lock(m_Mutex);
 		return m_DataQueue.size();
 	}
 

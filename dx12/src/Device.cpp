@@ -72,13 +72,21 @@ Device Device::Create(const Adapter& adapter) {
 #endif
 
 	// Check features.
-	D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData;
-	featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-	if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData,
-		sizeof(D3D12_FEATURE_DATA_ROOT_SIGNATURE)))) {
-		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+	{
+		D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData;
+		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
+		if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
+			featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
+		}
+		device.highestRootSigVersion = featureData.HighestVersion;
 	}
-	device.highestRootSigVersion = featureData.HighestVersion;
+	{
+		D3D12_FEATURE_DATA_D3D12_OPTIONS12 featureData = {};
+		if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &featureData, sizeof(featureData)))) {
+			featureData.EnhancedBarriersSupported = FALSE;
+		}
+		device.supportEnhancedBarriers = featureData.EnhancedBarriersSupported;
+	}
 
 	return device;
 }
