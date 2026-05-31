@@ -115,26 +115,21 @@ bool Window::PollEvents() {
 		}
 	}
 
-	// Get delta time and total time in seconds
-	LARGE_INTEGER currentTime;
-	QueryPerformanceCounter(&currentTime);
-	f64 delta = f64(currentTime.QuadPart - lastTime);
-	f64 total = f64(currentTime.QuadPart - startTime);
-	lastTime = currentTime.QuadPart;
-
 	// Store time in seconds
-	deltaTime = delta * invPerfFreq;
-	totalTime = total * invPerfFreq;
+	timer.tick();
+	deltaTime = timer.elapsedSeconds();
+	totalTime = timer.totalSeconds();
 
-	// Update the window title with current FPS every second
-	if (totalTime - floor(totalTime) < deltaTime) {
-		constexpr size_t BUFFER_SIZE = 256;
-		WCHAR buffer[BUFFER_SIZE];
-		f64 fps = round(1.0 / deltaTime);
-		f64 mspf = 1000.0 / fps;
-		swprintf_s(buffer, BUFFER_SIZE, L"FPS: %3.0f | MS/Frame: %2.1f", fps, mspf);
-		SetWindowTextW(hWnd, buffer);
-	}
+	// Update rolling average delta time to find average FPS
+	constexpr u64 n = 32;
+	u64 tickCount = timer.tickCount();
+	f64 alpha = 1.0 / (tickCount < n ? tickCount : n - 1);
+	rollingAvgDelta = glm::mix(rollingAvgDelta, deltaTime, alpha);
+	f64 fps = glm::round(1.0 / rollingAvgDelta);
+
+	// Display the FPS in the window title bar
+	std::wstring windowText = fmt::format(L"FPS: {:3.0f}", fps);
+	SetWindowTextW(hWnd, windowText.c_str());
 
 	return true;
 }

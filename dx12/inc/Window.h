@@ -1,5 +1,6 @@
 #pragma once
 #include "Resource.h"
+#include "Timer.h"
 
 constexpr u32 SWAP_CHAIN_BUFFER_COUNT = 3;
 
@@ -59,10 +60,8 @@ struct Window {
 	Context* context;
 	SwapChain swapChain;
 
-	u64 frameCounter;
-	u64 lastTime;
-	u64 startTime;
-	f64 invPerfFreq;
+	Timer timer;
 	f64 deltaTime;
 	f64 totalTime;
+	f64 rollingAvgDelta;
 };
