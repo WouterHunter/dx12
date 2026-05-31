@@ -36,12 +36,12 @@ Adapter Adapter::Create(bool useWarp) {
 Device Device::Create(const Adapter& adapter) {
 	Device device = {};
 
-	ThrowIfFailed(D3D12CreateDevice(adapter.dxgiAdapter4.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device.d3d12Device2)));
+	ThrowIfFailed(D3D12CreateDevice(adapter.dxgiAdapter4.Get(), D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device.d3d12Device10)));
 
 	// Enable debug messages in debug mode.
 #ifdef _DEBUG
 	ComPtr<ID3D12InfoQueue> infoQueue;
-	if (SUCCEEDED(device.d3d12Device2.As(&infoQueue))) {
+	if (SUCCEEDED(device.d3d12Device10.As(&infoQueue))) {
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_CORRUPTION, true));
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_ERROR, true));
 		ThrowIfFailed(infoQueue->SetBreakOnSeverity(D3D12_MESSAGE_SEVERITY_WARNING, true));
@@ -75,14 +75,14 @@ Device Device::Create(const Adapter& adapter) {
 	{
 		D3D12_FEATURE_DATA_ROOT_SIGNATURE featureData;
 		featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_1;
-		if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
+		if (FAILED(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_ROOT_SIGNATURE, &featureData, sizeof(featureData)))) {
 			featureData.HighestVersion = D3D_ROOT_SIGNATURE_VERSION_1_0;
 		}
 		device.highestRootSigVersion = featureData.HighestVersion;
 	}
 	{
 		D3D12_FEATURE_DATA_D3D12_OPTIONS12 featureData = {};
-		if (FAILED(device.d3d12Device2->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &featureData, sizeof(featureData)))) {
+		if (FAILED(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &featureData, sizeof(featureData)))) {
 			featureData.EnhancedBarriersSupported = FALSE;
 		}
 		device.supportEnhancedBarriers = featureData.EnhancedBarriersSupported;

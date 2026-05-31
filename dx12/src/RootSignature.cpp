@@ -79,7 +79,7 @@ RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE
     ThrowIfFailed(D3DX12SerializeVersionedRootSignature(&versionRootSignatureDesc, highestVersion,
         &rootSignatureBlob, &errorBlob));
 
-    auto d3d12Device = device.d3d12Device2;
+    auto d3d12Device = device.d3d12Device10;
 
     // Create the root signature.
     ThrowIfFailed(d3d12Device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(),
@@ -109,7 +109,7 @@ u32 RootSignature::GetDescriptorTableBitMask(D3D12_DESCRIPTOR_HEAP_TYPE descript
     switch (descriptorHeapType) {
     case D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV: return descriptorTableBitMask;
     case D3D12_DESCRIPTOR_HEAP_TYPE_SAMPLER: return samplerTableBitMask;
-    default: assert(false); return 0;
+    default: return 0;
     }
 }
 

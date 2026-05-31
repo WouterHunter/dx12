@@ -5,24 +5,27 @@ struct ModelViewProjection
 
 ConstantBuffer<ModelViewProjection> ModelViewProjectionCB : register(b0);
 
-struct VertexPosColor
+struct VertexStaticMesh
 {
-    float3 Position : POSITION;
-    float3 Color : COLOR;
+    float3 position : POSITION;
+    float3 normal   : NORMAL;
+    float2 texCoord : TEXCOORD;
 };
 
 struct VertexShaderOutput
 {
-    float4 Color : COLOR;
-    float4 Position : SV_Position;
+    float2 texCoords : TEXCOORD;
+    float4 normal : NORMAL;
+    float4 position : SV_Position;
 };
 
-VertexShaderOutput main(VertexPosColor IN)
+VertexShaderOutput main(VertexStaticMesh IN)
 {
     VertexShaderOutput OUT;
 
-    OUT.Position = mul(ModelViewProjectionCB.MVP, float4(IN.Position, 1.0f));
-    OUT.Color = float4(IN.Color, 1.0f);
+    OUT.position = mul(ModelViewProjectionCB.MVP, float4(IN.position, 1.0f));
+    OUT.normal = mul(ModelViewProjectionCB.MVP, float4(IN.normal, 0.0f));
+    OUT.texCoords = IN.texCoord;
 
     return OUT;
 }

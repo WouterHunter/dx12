@@ -1,10 +1,9 @@
 #include "DX12PCH.h"
 #include "Context.h"
 
-#include <shlwapi.h>
+#include <comdef.h> // For _com_error class (used to decode HR result codes).
 #include <fcntl.h> 
 #include <corecrt_io.h>
-#include "RootSignature.h"
 
 constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12 Render Window";
 
@@ -129,10 +128,14 @@ namespace {
 		return allowTearing;
 	}
 
-	void CreateWindowSwapChain(Window* window) {
+	void CreateWindowSwapChain(Window* window, bool vSync, bool fullscreen) {
 		SwapChain& swapChain = window->swapChain;
 		ComPtr<IDXGISwapChain1> swapChain1;
 		ComPtr<IDXGIFactory4> factory;
+
+		swapChain.allowTearing = CheckTearingSupport();
+		swapChain.vSync = vSync;
+		swapChain.fullscreen = fullscreen;
 
 		ThrowIfFailed(CreateDXGIFactory2(CREATE_FACTORY_FLAGS, IID_PPV_ARGS(&factory)));
 
@@ -147,7 +150,7 @@ namespace {
 			.Scaling = DXGI_SCALING_STRETCH,
 			.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
 			.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED,
-			.Flags = (CheckTearingSupport() ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
+			.Flags = (swapChain.allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
 				DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
 		};
 
@@ -170,8 +173,7 @@ namespace {
 		swapChain.frameLatencyWaitHandle = swapChain.dxgiSwapChain4->GetFrameLatencyWaitableObject();
 		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
 		swapChain.rtvVDescriptorHeap = CreateDescriptorHeap(context->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, SWAP_CHAIN_BUFFER_COUNT);
-		swapChain.rtvDescriptorSize = context->GetDevice().d3d12Device2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-		swapChain.allowTearing = CheckTearingSupport();
+		swapChain.rtvDescriptorSize = context->GetDevice().d3d12Device10->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 
 		swapChain.UpdateBackBuffers();
 	}
@@ -196,6 +198,13 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	std::atexit(ReportLiveObjects);
 #endif
 
+	// Initialize the COM library.
+	if (const HRESULT hr = CoInitializeEx(nullptr, COINIT_MULTITHREADED); FAILED(hr)) {
+		const _com_error err(hr);
+		BREAK("CoInitialize failed: {}", err.ErrorMessage());
+		return nullptr;
+	}
+
 	// Register a window class for creating our render window with.
 	WNDCLASSEXW windowClass = {
 		.cbSize = sizeof(WNDCLASSEX),
@@ -213,9 +222,8 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	};
 
 	if (!RegisterClassExW(&windowClass)) {
-		std::string message = "Unable to register the window class: " + GetWin32ErrorMessage();
-		MessageBoxA(NULL, message.c_str(), "Error", MB_OK | MB_ICONERROR);
-		__debugbreak();
+		BREAK("Unable to register the window class: {}", GetWin32ErrorMessage());
+		return nullptr;
 	}
 
 	// Create core objects
@@ -226,6 +234,12 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	context->commandQueueCompute.Init(context, D3D12_COMMAND_LIST_TYPE_COMPUTE);
 	context->commandQueueCopy.Init(context, D3D12_COMMAND_LIST_TYPE_COPY);
 	context->globalLayoutTracker.Init(context);
+
+	// Init Descriptor Allocators
+	for (u32 i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i) {
+		context->descriptorAllocators[i].Init(context,
+			(D3D12_DESCRIPTOR_HEAP_TYPE)i, 256);
+	}
 
 	return context;
 }
@@ -242,7 +256,7 @@ void Context::Destroy(Context* context) {
 }
 
 Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
-	Window* window = new Window;
+	Window* window = new Window{};
 	window->context = this;
 	window->rect = { 0, 0, (LONG)size.x, (LONG)size.y };
 	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
@@ -262,16 +276,8 @@ Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
 	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
 	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
 
-	// Query performance frequency and start time
-	LARGE_INTEGER performanceFreq, startTime;
-	QueryPerformanceFrequency(&performanceFreq);
-	QueryPerformanceCounter(&startTime);
-	window->invPerfFreq = 1.0 / (f64)performanceFreq.QuadPart;
-	window->startTime = startTime.QuadPart;
-	window->lastTime = startTime.QuadPart;
-
 	CreateConsole(); // Create debug console while using WINDOWS subsystem
-	CreateWindowSwapChain(window);
+	CreateWindowSwapChain(window, vSync, false);
 
 	window->initialized = true;
 
@@ -291,4 +297,47 @@ void Context::FlushAllCommandQueues() {
 
 void Context::Quit(int exitCode) {
 	PostQuitMessage(exitCode);
+}
+
+Ref<Resource> Context::CreateResource(D3D12_RESOURCE_DESC1 desc, D3D12_HEAP_TYPE heapType, const wchar_t* name) {
+	
+	ComPtr<ID3D12Resource> d3d12Resource;
+	CD3DX12_HEAP_PROPERTIES defaultProperties(heapType);
+	ThrowIfFailed(device.d3d12Device10->CreateCommittedResource3(
+		&defaultProperties, D3D12_HEAP_FLAG_NONE, &desc,
+		D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0, nullptr,
+		IID_PPV_ARGS(&d3d12Resource)));
+
+	Ref<Resource> resource = MakeRef<Resource>(this, d3d12Resource, name);
+
+	// Check feature support
+	resource->formatSupport.Format = desc.Format;
+	ThrowIfFailed(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
+		&resource->formatSupport, sizeof(D3D12_FEATURE_DATA_FORMAT_SUPPORT)));
+
+
+	return resource;
+}
+
+Ref<Texture> Context::CreateTexture(D3D12_RESOURCE_DESC1 desc1, D3D12_HEAP_TYPE heapType, D3D12_BARRIER_LAYOUT layout, const wchar_t* name) {
+	ComPtr<ID3D12Resource> d3d12Resource;
+	CD3DX12_HEAP_PROPERTIES defaultProperties(heapType);
+	ThrowIfFailed(device.d3d12Device10->CreateCommittedResource3(
+		&defaultProperties, D3D12_HEAP_FLAG_NONE,
+		&desc1, layout, nullptr, nullptr, 0, nullptr,
+		IID_PPV_ARGS(&d3d12Resource)));
+
+	// Find the subresource count and track the texture layout
+	D3D12_RESOURCE_DESC desc = d3d12Resource->GetDesc();
+	u32 arraySize = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1u : desc.DepthOrArraySize;
+	u32 subresourceCount = desc.MipLevels * arraySize;
+	globalLayoutTracker.Register(d3d12Resource.Get(), layout, subresourceCount);
+
+	Ref<Texture> texture = MakeRef<Texture>(this, d3d12Resource, nullptr, name);
+
+	return texture;
+}
+
+DescriptorAllocation Context::AllocateDescriptors(D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors) {
+	return descriptorAllocators[type].Allocate(numDescriptors);
 }

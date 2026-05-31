@@ -6,7 +6,7 @@
 
 DescriptorHeap CreateDescriptorHeap(const Device& device, const D3D12_DESCRIPTOR_HEAP_DESC& desc) {
 	DescriptorHeap heap = {};
-	ThrowIfFailed(device.d3d12Device2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
+	ThrowIfFailed(device.d3d12Device10->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
 	return heap;
 }
 
@@ -16,7 +16,7 @@ DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_
 		.Type = type,
 		.NumDescriptors = numDescriptors,
 	};
-	ThrowIfFailed(device.d3d12Device2->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
+	ThrowIfFailed(device.d3d12Device10->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
 	return heap;
 }
 
@@ -40,31 +40,31 @@ void SwapChain::Wait() {
 
 void SwapChain::UpdateBackBuffers() {
 	const Device& device = context->GetDevice();
-	u32 rtvDescriptorSize = device.d3d12Device2->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
+	u32 rtvDescriptorSize = device.d3d12Device10->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
 	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvVDescriptorHeap.d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
 	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
-		Resource& backBuffer = backBuffers[i];
-		backBuffer.cpuHandle = rtvHandle;
-		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer.d3d12Resource)));
-		ThrowIfFailed(backBuffer.d3d12Resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
-		device.d3d12Device2->CreateRenderTargetView(backBuffer.d3d12Resource.Get(), nullptr, rtvHandle);
+		backBuffers[i] = MakeRef<Resource>();
+		Ref<Resource>& backBuffer = backBuffers[i];
+		backBuffer->cpuHandle = rtvHandle;
+		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer->d3d12Resource)));
+		ThrowIfFailed(backBuffer->d3d12Resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
+		device.d3d12Device10->CreateRenderTargetView(backBuffer->d3d12Resource.Get(), nullptr, rtvHandle);
 		rtvHandle.Offset((INT)rtvDescriptorSize);
 
 		// Register back buffers with the global layout tracker (initial layout is PRESENT/COMMON)
 		context->GetGlobalLayoutTracker().Register(
-			&backBuffer, D3D12_BARRIER_LAYOUT_PRESENT, 1);
+			backBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_PRESENT, 1);
 	}
 }
 
 D3D12_RT_FORMAT_ARRAY SwapChain::GetRenderTargetFormats() const {
-	const Resource* backBuffer = backBuffers + currentBackBufferIndex;
+	const Ref<Resource>& backBuffer = backBuffers[currentBackBufferIndex];
 	D3D12_RT_FORMAT_ARRAY rtFormats = backBuffer->GetRenderTargetFormats();
 	return rtFormats;
 }
 
-Resource* SwapChain::GetCurrentBackBuffer() {
-	Resource* backBuffer = backBuffers + currentBackBufferIndex;
-	return backBuffer;
+Ref<Resource> SwapChain::GetCurrentBackBuffer() {
+	return backBuffers[currentBackBufferIndex];
 }
 
 void Window::Resize(ivec2 size) {
@@ -78,14 +78,14 @@ void Window::Resize(ivec2 size) {
 		// are not being referenced by an in-flight command list.
 		context->FlushAllCommandQueues();
 
-		for (Resource& backBuffer : swapChain.backBuffers) {
+		for (Ref<Resource>& backBuffer : swapChain.backBuffers) {
 			// Unregister from layout tracker before releasing
-			if (backBuffer.d3d12Resource) {
-				context->GetGlobalLayoutTracker().Unregister(&backBuffer);
+			if (backBuffer && backBuffer->d3d12Resource) {
+				context->GetGlobalLayoutTracker().Unregister(backBuffer->d3d12Resource.Get());
 			}
 			// Any references to the back buffers must be released
 			// before the swap chain can be resized.
-			backBuffer.d3d12Resource.Reset();
+			if (backBuffer) backBuffer->d3d12Resource.Reset();
 		}
 		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
 		ThrowIfFailed(swapChain.dxgiSwapChain4->GetDesc(&swapChainDesc));

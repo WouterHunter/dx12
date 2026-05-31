@@ -13,7 +13,7 @@ struct Adapter {
 struct Device {
 	static Device Create(const Adapter& adapter);
 
-	ComPtr<ID3D12Device2> d3d12Device2;
+	ComPtr<ID3D12Device10> d3d12Device10;
 	D3D_ROOT_SIGNATURE_VERSION highestRootSigVersion;
 	bool supportEnhancedBarriers;
 };

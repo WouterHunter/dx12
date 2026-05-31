@@ -1,119 +1,12 @@
 #include "DX12PCH.h"
 #include "CommandQueue.h"
 #include "Context.h"
-#include "RootSignature.h"
-#include "PipelineState.h"
+#include "CommandList.h"
 
-
-CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name) {
-	CommandList* commandList = new CommandList;
-	commandList->type = type;
-
-	Device& device = context->GetDevice();
-	assert(device.supportEnhancedBarriers && "Enhanced Barriers required but not supported by this device.");
-
-	ThrowIfFailed(device.d3d12Device2->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
-
-	ComPtr<ID3D12GraphicsCommandList> baseCL;
-	ThrowIfFailed(device.d3d12Device2->CreateCommandList(
-		0,
-		type,
-		commandList->d3dCommandAllocator.Get(),
-		nullptr,
-		IID_PPV_ARGS(&baseCL)));
-	ThrowIfFailed(baseCL.As(&commandList->d3dCommandList));
-
-	if (name) {
-		ThrowIfFailed(commandList->d3dCommandAllocator->SetName(name));
-		ThrowIfFailed(commandList->d3dCommandList->SetName(name));
-	}
-
-	return commandList;
-}
-
-void CommandList::Close() {
-	ThrowIfFailed(d3dCommandList->Close());
-}
-
-void CommandList::Reset() {
-	ThrowIfFailed(d3dCommandAllocator->Reset());
-	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
-	resourceStateTracker.Reset();
-}
-
-void CommandList::ClearRTV(Resource* resource, FLOAT* clearColor) {
-	TextureBarrier(resource, 0xFFFFFFFF,
-		D3D12_BARRIER_SYNC_RENDER_TARGET,
-		D3D12_BARRIER_ACCESS_RENDER_TARGET,
-		D3D12_BARRIER_LAYOUT_RENDER_TARGET);
-	d3dCommandList->ClearRenderTargetView(resource->cpuHandle, clearColor, 0, nullptr);
-}
-
-void CommandList::ClearDSV(Resource* resource, FLOAT depth, u8 stencil) {
-	TextureBarrier(resource, 0xFFFFFFFF,
-		D3D12_BARRIER_SYNC_DEPTH_STENCIL,
-		D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
-		D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
-	d3dCommandList->ClearDepthStencilView(resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH,
-		depth, stencil, 0, nullptr);
-}
-
-void CommandList::SetPipelineState(PipelineState& pipelineState) {
-	d3dCommandList->SetPipelineState(pipelineState.d3d12PipelineState.Get());
-}
-
-void CommandList::SetRootSignature(RootSignature& rootSignature) {
-	d3dCommandList->SetGraphicsRootSignature(rootSignature.d3d12RootSignature.Get());
-}
-
-void CommandList::SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY primitiveTopology) {
-	d3dCommandList->IASetPrimitiveTopology(primitiveTopology);
-}
-
-void CommandList::SetViewport(const D3D12_VIEWPORT& viewport) {
-	d3dCommandList->RSSetViewports(1, &viewport);
-
-}
-
-void CommandList::SetScissorRect(const D3D12_RECT& scissorRect) {
-	d3dCommandList->RSSetScissorRects(1, &scissorRect);
-}
-
-void CommandList::TextureBarrier(
-	Resource* resource,
-	u32 subresource,
-	D3D12_BARRIER_SYNC syncAfter,
-	D3D12_BARRIER_ACCESS accessAfter,
-	D3D12_BARRIER_LAYOUT layoutAfter,
-	bool discard
-) {
-	resourceStateTracker.TransitionTexture(
-		resource,
-		subresource,
-		syncAfter,
-		accessAfter,
-		layoutAfter,
-		discard
-	);
-	resourceStateTracker.FlushImmediateBarriers(this);
-}
-
-void CommandList::BufferBarrier(
-	Resource* resource,
-	D3D12_BARRIER_SYNC syncAfter,
-	D3D12_BARRIER_ACCESS accessAfter
-) {
-	resourceStateTracker.TransitionBuffer(
-		resource,
-		syncAfter,
-		accessAfter
-	);
-	resourceStateTracker.FlushImmediateBarriers(this);
-}
 
 void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
-	this->context = context;
-	this->type = type;
+	this->m_Context = context;
+	this->m_Type = type;
 	Device& device = context->GetDevice();
 	D3D12_COMMAND_QUEUE_DESC desc = {
 		.Type = type,
@@ -121,8 +14,8 @@ void CommandQueue::Init(Context* context, D3D12_COMMAND_LIST_TYPE type) {
 		.Flags = D3D12_COMMAND_QUEUE_FLAG_NONE,
 		.NodeMask = 0,
 	};
-	ThrowIfFailed(device.d3d12Device2->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3dCommandQueue)));
-	ThrowIfFailed(device.d3d12Device2->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3dFence)));
+	ThrowIfFailed(device.d3d12Device10->CreateCommandQueue(&desc, IID_PPV_ARGS(&d3dCommandQueue)));
+	ThrowIfFailed(device.d3d12Device10->CreateFence(0, D3D12_FENCE_FLAG_NONE, IID_PPV_ARGS(&d3dFence)));
 
 	// Set name
 	const wchar_t* name = nullptr;
@@ -140,14 +33,14 @@ CommandList* CommandQueue::GetCommandList() {
 	if (!availableCommandLists.TryPop(commandList)) {
 		
 		std::wstring name;
-		switch (type) {
+		switch (m_Type) {
 		case D3D12_COMMAND_LIST_TYPE_DIRECT: name = L"DirectCommandList["; break;
 		case D3D12_COMMAND_LIST_TYPE_COMPUTE: name = L"ComputeCommandList["; break;
 		case D3D12_COMMAND_LIST_TYPE_COPY: name = L"CopyCommandList["; break;
 		}
-		name += std::to_wstring(numCommandLists++) + L']';
+		name += std::to_wstring(numTotalCommandLists++) + L']';
 
-		commandList = CommandList::Create(context, type, name.c_str());
+		commandList = CommandList::Create(m_Context, m_Type, name.c_str());
 	}
 	return commandList;
 }
@@ -160,7 +53,7 @@ void CommandQueue::ClearCommandLists() {
 }
 
 u64 CommandQueue::ExecuteCommandList(CommandList* commandList) {
-	assert(type == commandList->type && "Make sure to execute a command list on the command queue it was created on.");
+	assert(m_Type == commandList->type && "Make sure to execute a command list on the command queue it was created on.");
 	CommandList* ppCommandList[] = { commandList };
 	return ExecuteCommandLists(ppCommandList, 1);
 }
@@ -169,7 +62,7 @@ u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 
 	// Gather command lists that need to be executed.
 	std::vector<ID3D12CommandList*> d3d12CommandLists;
-	d3d12CommandLists.reserve(count + 1); // +1 for potential prologue
+	d3d12CommandLists.reserve(count + 1); // +1 for potential pending
 
 	// Resolve pending barriers from all command lists being submitted
 	std::vector<ResourceStateTracker*> trackers(count);
@@ -178,10 +71,10 @@ u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 	}
 
 	// Commit final layout states to global tracker
-	GlobalLayoutTracker& globalTracker = context->GetGlobalLayoutTracker();
-	ID3D12GraphicsCommandList7* prologue = globalTracker.ResolvePendingBarriers(trackers);
-	if (prologue) {
-		d3d12CommandLists.push_back(prologue);
+	GlobalLayoutTracker& globalTracker = m_Context->GetGlobalLayoutTracker();
+	ID3D12GraphicsCommandList7* pendingCL = globalTracker.ResolvePendingBarriers(trackers);
+	if (pendingCL) {
+		d3d12CommandLists.push_back(pendingCL);
 	}
 	globalTracker.CommitFinalLayoutStates(trackers);
 
@@ -201,7 +94,7 @@ u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 	}
 
 	// Run a task that waits for the command lists to finish
-	context->GetThreadPool().PushTask(&CommandQueue::WaitForInFlightCommandListsTask, this);
+	m_Context->GetThreadPool().PushTask(&CommandQueue::WaitForInFlightCommandListsTask, this);
 
 	return fenceValue;
 }

@@ -1,6 +1,7 @@
 #include "Core.h"
 #include "Utils.h"
 #include "Context.h"
+#include "CommandList.h"
 #include "ResourceStateTracker.h"
 
 #include "../res/resource.h" // icon resource
@@ -18,7 +19,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	while (window->PollEvents()) {
 		CommandQueue& commandQueue = context->CommandQueueDirect();
 		CommandList* commandList = commandQueue.GetCommandList();
-		Resource* backBuffer = window->swapChain.GetCurrentBackBuffer();
+		Ref<Resource> backBuffer = window->swapChain.GetCurrentBackBuffer();
 
 		// Clear the render target. 
 		FLOAT clearColor[] = { 0.1f, 0.15f, 0.15f, 1.0f };

@@ -3,13 +3,12 @@
 constexpr u32 SUBRESOURCE_ALL = 0xFFFFFFFF;
 
 struct Context;
-struct Resource;
 struct CommandList;
 
 
 // SubresourceKey — identifies a resource + subresource for tracking
 struct SubresourceKey {
-	Resource* resource;
+	ID3D12Resource* resource;
 	u32 subresource;
 
 	bool operator==(const SubresourceKey& other) const {
@@ -28,7 +27,7 @@ struct SubresourceKey {
 
 // Recorded during command list building, resolved at submit time.
 struct PendingTextureBarrier {
-	Resource* resource;
+	ID3D12Resource* resource;
 	u32 subresource;
 	D3D12_BARRIER_SYNC syncBefore;
 	D3D12_BARRIER_SYNC syncAfter;
@@ -65,7 +64,7 @@ public:
 	// If layout is already known, emits an immediate barrier.
 	// Otherwise, records a pending barrier to resolve at submit.
 	void TransitionTexture(
-		Resource* resource,
+		ID3D12Resource* resource,
 		u32 subresource,
 		D3D12_BARRIER_SYNC syncAfter,
 		D3D12_BARRIER_ACCESS accessAfter,
@@ -75,12 +74,12 @@ public:
 
 	// Record a buffer access transition.
 	void TransitionBuffer(
-		Resource* resource,
+		ID3D12Resource* resource,
 		D3D12_BARRIER_SYNC syncAfter,
 		D3D12_BARRIER_ACCESS accessAfter
 	);
 
-	void UAVBarrier(Resource* resource, bool isTexture);
+	void UAVBarrier(ID3D12Resource* resource, bool isTexture);
 	void FlushImmediateBarriers(CommandList* commandList);
 
 	const std::vector<PendingTextureBarrier>& GetPendingTextureBarriers() const { return m_pendingTextureBarriers; }
@@ -110,8 +109,8 @@ class GlobalLayoutTracker {
 public:
 	void Init(Context* context);
 
-	void Register(Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount = 1);
-	void Unregister(Resource* resource);
+	void Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount = 1);
+	void Unregister(ID3D12Resource* resource);
 
 	// Commit final texture layouts. This must be called when the command list submitted
 	void CommitFinalLayoutStates(std::vector<ResourceStateTracker*> trackers);
@@ -120,9 +119,9 @@ public:
 	ID3D12GraphicsCommandList7* ResolvePendingBarriers(std::vector<ResourceStateTracker*> trackers);
 
 private:
-	ComPtr<ID3D12CommandAllocator> m_prologueAllocator;
-	ComPtr<ID3D12GraphicsCommandList7> m_prologueCommandList;
+	ComPtr<ID3D12CommandAllocator> m_pendingAllocator;
+	ComPtr<ID3D12GraphicsCommandList7> m_pendingCommandList;
 	mutable std::shared_mutex m_mutex;
 	std::unordered_map<SubresourceKey, D3D12_BARRIER_LAYOUT, SubresourceKey::Hash> m_layouts;
-	std::unordered_map<Resource*, u32> m_subresourceCounts;
+	std::unordered_map<ID3D12Resource*, u32> m_subresourceCounts;
 };

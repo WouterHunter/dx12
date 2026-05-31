@@ -24,7 +24,7 @@ struct SwapChain {
 	void Wait();
 	void UpdateBackBuffers();
 	D3D12_RT_FORMAT_ARRAY GetRenderTargetFormats() const;
-	Resource* GetCurrentBackBuffer();
+	Ref<Resource> GetCurrentBackBuffer();
 
 	Context* context;
 	ComPtr<IDXGISwapChain4> dxgiSwapChain4;
@@ -34,7 +34,7 @@ struct SwapChain {
 	u32 rtvDescriptorSize = 0;
 	u32 currentBackBufferIndex = 0;
 	u64 frameFenceValues[SWAP_CHAIN_BUFFER_COUNT] = {};
-	Resource backBuffers[SWAP_CHAIN_BUFFER_COUNT] = {};
+	Ref<Resource> backBuffers[SWAP_CHAIN_BUFFER_COUNT];
 
 	b8 vSync = true;
 	b8 allowTearing = false;

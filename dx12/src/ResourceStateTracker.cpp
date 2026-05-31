@@ -1,7 +1,7 @@
 #include "DX12PCH.h"
 #include "ResourceStateTracker.h"
 #include "Context.h"
-#include "Resource.h"
+#include "CommandList.h"
 
 
 // ============================================================================
@@ -9,7 +9,7 @@
 // ============================================================================
 
 void ResourceStateTracker::TransitionTexture(
-	Resource* resource,
+	ID3D12Resource* resource,
 	u32 subresource,
 	D3D12_BARRIER_SYNC syncAfter,
 	D3D12_BARRIER_ACCESS accessAfter,
@@ -30,7 +30,7 @@ void ResourceStateTracker::TransitionTexture(
 		barrier.AccessAfter = accessAfter;
 		barrier.LayoutBefore = localState.layout;
 		barrier.LayoutAfter = layoutAfter;
-		barrier.pResource = resource->d3d12Resource.Get();
+		barrier.pResource = resource;
 		barrier.Subresources.IndexOrFirstMipLevel = subresource;
 		barrier.Subresources.NumMipLevels = 0; // Indicates IndexOrFirstMipLevel is a subresource index
 		barrier.Flags = discard ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -69,7 +69,7 @@ void ResourceStateTracker::TransitionTexture(
 }
 
 void ResourceStateTracker::TransitionBuffer(
-	Resource* resource,
+	ID3D12Resource* resource,
 	D3D12_BARRIER_SYNC syncAfter,
 	D3D12_BARRIER_ACCESS accessAfter
 ) {
@@ -95,7 +95,7 @@ void ResourceStateTracker::TransitionBuffer(
 			barrier.SyncAfter = syncAfter;
 			barrier.AccessBefore = localState.lastAccess;
 			barrier.AccessAfter = accessAfter;
-			barrier.pResource = resource->d3d12Resource.Get();
+			barrier.pResource = resource;
 			barrier.Offset = 0;
 			barrier.Size = UINT64_MAX;
 			m_immediateBufferBarriers.push_back(barrier);
@@ -109,7 +109,7 @@ void ResourceStateTracker::TransitionBuffer(
 	}
 }
 
-void ResourceStateTracker::UAVBarrier(Resource* resource, bool isTexture) {
+void ResourceStateTracker::UAVBarrier(ID3D12Resource* resource, bool isTexture) {
 	if (isTexture) {
 		SubresourceKey key = { resource, SUBRESOURCE_ALL };
 		auto it = m_localTextureStates.find(key);
@@ -121,7 +121,7 @@ void ResourceStateTracker::UAVBarrier(Resource* resource, bool isTexture) {
 			barrier.AccessAfter = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
 			barrier.LayoutBefore = it->second.layout;
 			barrier.LayoutAfter = it->second.layout;
-			barrier.pResource = resource->d3d12Resource.Get();
+			barrier.pResource = resource;
 			barrier.Subresources.IndexOrFirstMipLevel = SUBRESOURCE_ALL;
 			barrier.Subresources.NumMipLevels = 0;
 			barrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -137,7 +137,7 @@ void ResourceStateTracker::UAVBarrier(Resource* resource, bool isTexture) {
 			barrier.SyncAfter = it->second.lastSync;
 			barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
 			barrier.AccessAfter = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
-			barrier.pResource = resource->d3d12Resource.Get();
+			barrier.pResource = resource;
 			barrier.Offset = 0;
 			barrier.Size = UINT64_MAX;
 			m_immediateBufferBarriers.push_back(barrier);
@@ -192,26 +192,26 @@ void GlobalLayoutTracker::Init(Context* context) {
 
 	Device& device = context->GetDevice();
 
-	// Create prologue command allocator and list
-	ThrowIfFailed(device.d3d12Device2->CreateCommandAllocator(
+	// Create pending command allocator and list
+	ThrowIfFailed(device.d3d12Device10->CreateCommandAllocator(
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		IID_PPV_ARGS(&m_prologueAllocator)));
+		IID_PPV_ARGS(&m_pendingAllocator)));
 
 	ComPtr<ID3D12GraphicsCommandList> baseCL;
-	ThrowIfFailed(device.d3d12Device2->CreateCommandList(
+	ThrowIfFailed(device.d3d12Device10->CreateCommandList(
 		0,
 		D3D12_COMMAND_LIST_TYPE_DIRECT,
-		m_prologueAllocator.Get(),
+		m_pendingAllocator.Get(),
 		nullptr,
 		IID_PPV_ARGS(&baseCL)));
-	ThrowIfFailed(baseCL.As(&m_prologueCommandList));
-	ThrowIfFailed(m_prologueCommandList->Close());
+	ThrowIfFailed(baseCL.As(&m_pendingCommandList));
+	ThrowIfFailed(m_pendingCommandList->Close());
 
-	ThrowIfFailed(m_prologueAllocator->SetName(L"ResourceStateTrackerPrologue"));
-	ThrowIfFailed(m_prologueCommandList->SetName(L"ResourceStateTrackerPrologue"));
+	ThrowIfFailed(m_pendingAllocator->SetName(L"Pending Command Allocator"));
+	ThrowIfFailed(m_pendingCommandList->SetName(L"Pending Command List"));
 }
 
-void GlobalLayoutTracker::Register(Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount) {
+void GlobalLayoutTracker::Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount) {
 	std::unique_lock lock(m_mutex);
 	m_subresourceCounts[resource] = subresourceCount;
 	for (u32 i = 0; i < subresourceCount; ++i) {
@@ -219,7 +219,7 @@ void GlobalLayoutTracker::Register(Resource* resource, D3D12_BARRIER_LAYOUT init
 	}
 }
 
-void GlobalLayoutTracker::Unregister(Resource* resource) {
+void GlobalLayoutTracker::Unregister(ID3D12Resource* resource) {
 	std::unique_lock lock(m_mutex);
 	auto it = m_subresourceCounts.find(resource);
 	if (it != m_subresourceCounts.end()) {
@@ -273,7 +273,7 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 				barrier.AccessAfter = pending.accessAfter;
 				barrier.LayoutBefore = layoutBefore;
 				barrier.LayoutAfter = pending.layoutAfter;
-				barrier.pResource = pending.resource->d3d12Resource.Get();
+				barrier.pResource = pending.resource;
 				barrier.Subresources.IndexOrFirstMipLevel = pending.subresource;
 				barrier.Subresources.NumMipLevels = 0;
 				barrier.Flags = pending.discard ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -288,9 +288,9 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 		return nullptr;
 	}
 
-	// Record resolved barriers into the prologue command list
-	ThrowIfFailed(m_prologueAllocator->Reset());
-	ThrowIfFailed(m_prologueCommandList->Reset(m_prologueAllocator.Get(), nullptr));
+	// Record resolved barriers into the pending command list
+	ThrowIfFailed(m_pendingAllocator->Reset());
+	ThrowIfFailed(m_pendingCommandList->Reset(m_pendingAllocator.Get(), nullptr));
 
 	std::vector<D3D12_BARRIER_GROUP> groups;
 
@@ -310,10 +310,10 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 		groups.push_back(bufGroup);
 	}
 
-	m_prologueCommandList->Barrier((u32)groups.size(), groups.data());
-	ThrowIfFailed(m_prologueCommandList->Close());
+	m_pendingCommandList->Barrier((u32)groups.size(), groups.data());
+	ThrowIfFailed(m_pendingCommandList->Close());
 
-	return m_prologueCommandList.Get();
+	return m_pendingCommandList.Get();
 }
 
 void GlobalLayoutTracker::CommitFinalLayoutStates(std::vector<ResourceStateTracker*> trackers) {
