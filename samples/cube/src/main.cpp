@@ -72,6 +72,8 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	// Initialize
 	CommandLineArgs args = ParseCommandLineArguments(lpCmdLine);
+	args.width = 1024;
+	args.height = 1024;
 	args.vSync = true;
 	Context* context = Context::Create(hInstance, IDI_ICON1);
 	Window* window = context->CreateWindow(L"DX12 - Cube", { args.width, args.height }, args.vSync);
@@ -132,12 +134,12 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	rootParams[0].InitAsConstants(sizeof(mat4) / 4, 0, 0, D3D12_SHADER_VISIBILITY_VERTEX);
 	rootParams[1].InitAsDescriptorTable(1, &descriptorRange, D3D12_SHADER_VISIBILITY_PIXEL);
 
-	CD3DX12_STATIC_SAMPLER_DESC linearRepeatSampler(0, D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR);
-	linearRepeatSampler.MaxLOD = 0.0f; // TEMP until mipmapping
+	//CD3DX12_STATIC_SAMPLER_DESC sampler(0, D3D12_FILTER_COMPARISON_MIN_MAG_MIP_LINEAR);
+	CD3DX12_STATIC_SAMPLER_DESC sampler(0, D3D12_FILTER_ANISOTROPIC);
 	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc(_countof(rootParams), rootParams, 
-		1, &linearRepeatSampler, rootSignatureFlags);
+		1, &sampler, rootSignatureFlags);
 
-	RootSignature rootSignature = RootSignature::Create(context, rootSignatureDesc.Desc_1_1);
+	RootSignature rootSignature(context, rootSignatureDesc.Desc_1_1);
 
 	// Load vertex and pixel shaders
 	ComPtr<ID3DBlob> vertexShaderBlob;
@@ -169,7 +171,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		.rasterizer = rasterizerDesc,
 	};
 
-	PipelineState pipelineState = PipelineState::Create(context, &pipelineStateStream);
+	PipelineState pipelineState = PipelineState(context, &pipelineStateStream);
 
 	// Create the descriptor heap for the depth-stencil view.
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {
@@ -180,30 +182,36 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	DescriptorHeap dsvHeap = CreateDescriptorHeap(context->GetDevice(), dsvHeapDesc);
 		
 
-	// Resize screen dependent resources.
-	// Create a depth buffer.
 	auto device = context->GetDevice().d3d12Device10;
 
-	Ref<Resource> depthBuffer = MakeRef<Resource>();
-	CD3DX12_HEAP_PROPERTIES depthBufferHeapProps(D3D12_HEAP_TYPE_DEFAULT);
-	CD3DX12_RESOURCE_DESC1 depthBufferDesc = CD3DX12_RESOURCE_DESC1::Tex2D(
-		DXGI_FORMAT_D32_FLOAT, (UINT)args.width, (UINT)args.height,
-		1, 0, 1, 0, D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL);
-	D3D12_CLEAR_VALUE optimizedClearValue = {
-		.Format = DXGI_FORMAT_D32_FLOAT,
-		.DepthStencil = { 1.0f, 0 },
-	};
+	// Resize screen dependent resources.
+	// Create a depth buffer.
+	Ref<Texture> depthBuffer;
+	{
+		ComPtr<ID3D12Resource> depthBufferResource;
+		CD3DX12_HEAP_PROPERTIES depthBufferHeapProps(D3D12_HEAP_TYPE_DEFAULT);
+		CD3DX12_RESOURCE_DESC1 depthBufferDesc = CD3DX12_RESOURCE_DESC1::Tex2D(
+			DXGI_FORMAT_D32_FLOAT, (UINT)args.width, (UINT)args.height,
+			1, 0, 1, 0, 
+			D3D12_RESOURCE_FLAG_ALLOW_DEPTH_STENCIL | D3D12_RESOURCE_FLAG_DENY_SHADER_RESOURCE);
+		D3D12_CLEAR_VALUE clearValue = {
+			.Format = DXGI_FORMAT_D32_FLOAT,
+			.DepthStencil = { 1.0f, 0 },
+		};
 
-	ThrowIfFailed(device->CreateCommittedResource3(
-		&depthBufferHeapProps, D3D12_HEAP_FLAG_NONE,
-		&depthBufferDesc, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
-		&optimizedClearValue, nullptr, 0, nullptr,
-		IID_PPV_ARGS(&depthBuffer->d3d12Resource)
-	));
+		ThrowIfFailed(device->CreateCommittedResource3(
+			&depthBufferHeapProps, D3D12_HEAP_FLAG_NONE,
+			&depthBufferDesc, D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE,
+			&clearValue, nullptr, 0, nullptr,
+			IID_PPV_ARGS(&depthBufferResource)
+		));
 
-	// Register depth buffer with layout tracker
-	context->GetGlobalLayoutTracker().Register(
-		depthBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, 1);
+		// Register depth buffer with layout tracker
+		context->GetGlobalLayoutTracker().Register(
+			depthBufferResource.Get(), D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
+
+		depthBuffer = MakeRef<Texture>(context, depthBufferResource, &clearValue, L"Depth Buffer");
+	}
 
 	// Update the depth-stencil view.
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
@@ -252,7 +260,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		mat4 proj = glm::perspective(fov, aspect, nearPlane, farPlane);
 		mat4 view = glm::lookAt(eye, center, up);
 		mat4 mvp = proj * view * model;
-		d3d12CommandList->SetGraphicsRoot32BitConstants(0, sizeof(mat4) / 4, glm::value_ptr(mvp), 0);
+		commandList->SetGraphics32BitConstants(0, mvp);
 
 		commandList->TextureBarrier(texture, SUBRESOURCE_ALL,
 			D3D12_BARRIER_SYNC_PIXEL_SHADING,

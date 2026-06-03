@@ -8,9 +8,11 @@ public:
 	Resource() = default;
 	explicit Resource(Context* context, ComPtr<ID3D12Resource> resource, const wchar_t* name = nullptr);
 
+	ComPtr<ID3D12Resource> GetD3D12Resource() const;
     D3D12_RESOURCE_DESC GetD3D12ResourceDesc() const;
 	DXGI_FORMAT GetFormat() const;
 	D3D12_RT_FORMAT_ARRAY GetRenderTargetFormats() const;
+	std::wstring GetName() const;
 
 	[[nodiscard]] bool CheckFormatSupport(D3D12_FORMAT_SUPPORT1 formatSupport) const;
 	[[nodiscard]] bool CheckFormatSupport(D3D12_FORMAT_SUPPORT2 formatSupport) const;

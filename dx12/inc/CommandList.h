@@ -1,11 +1,10 @@
 #pragma once
 #include "ResourceStateTracker.h"
 #include "DynamicDescriptorHeap.h"
+#include "PipelineState.h"
 #include "Texture.h"
 
 class Resource;
-struct PipelineState;
-struct RootSignature;
 
 /** Command list */
 struct CommandList {
@@ -23,6 +22,7 @@ struct CommandList {
 	// Clear the depth of a depth-stencil view.
 	void ClearDSV(const Ref<Resource>& resource, FLOAT depth = 1.0f, u8 stencil = 0);
 
+	void SetPSO(const Ref<PSO> pso);
 	void SetPipelineState(PipelineState& pipelineState);
 	void SetRootSignature(RootSignature& rootSignature);
 	void SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY primitiveTopology);
@@ -48,10 +48,10 @@ struct CommandList {
 	// Textures ----------------------------------------------------------------------
 
 	Ref<Texture> LoadTextureFromFile(const fs::path& filePath, bool generateMips = true, bool sRGB = false);
-
+	bool GenerateMipmaps(const Ref<Texture>& texture);
 	
 	// Resource State Management -----------------------------------------------------
-
+	
 	void TextureBarrier(
 		const Ref<Resource>& resource,
 		u32 subresource,
@@ -71,20 +71,25 @@ struct CommandList {
 	// Descriptor Heaps -------------------------------------------------------------
 
 	void SetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE heapType, ID3D12DescriptorHeap* heap);
-	void BindDescriptorHeaps();
+
+	void SetGraphics32BitConstants(u32 rootParam, u32 numConstants, const void* constants) const;
+	template<class T> void SetGraphics32BitConstants(u32 rootParam, const T& constants) const;
+	void SetCompute32BitConstants(u32 rootParam, u32 numConstants, const void* constants) const;
+	template<class T> void SetCompute32BitConstants(u32 rootParam, const T& constants) const;
 
 	void SetShaderResourceView(i32 rootParameterIndex, u32 descriptorOffset, const Ref<Texture>& texture);
 
 	void DrawIndexed(u32 indexCount, u32 instanceCount, u32 startIndex, u32 baseVertex, u32 startInstance);
+	void Dispatch(u32 groupCountX, u32 groupCountY = 1, u32 groupCountZ = 1);
 
-	void TrackIntermediateObject(ComPtr<ID3D12Object> object);
+	void TrackObject(ComPtr<ID3D12Object> object);
 
 	Context* context;
 	D3D12_COMMAND_LIST_TYPE type;
 	ComPtr<ID3D12CommandAllocator> d3dCommandAllocator;
 	ComPtr<ID3D12GraphicsCommandList7> d3dCommandList;
 	ResourceStateTracker resourceStateTracker;
-	std::vector<ComPtr<ID3D12Object>> trackedIntermediates;
+	std::vector<ComPtr<ID3D12Object>> trackedObjects;
 
 	// Keep track of the currently bound root signatures to minimize root
 	// signature changes.
@@ -112,4 +117,16 @@ Ref<IndexBuffer> CommandList::CopyIndexBuffer(const std::span<T>& indexData) {
 	constexpr DXGI_FORMAT indexFormat = GetFormatFromType<T>();
 	static_assert(indexFormat != DXGI_FORMAT_UNKNOWN);
 	return CopyIndexBuffer(indexData.size(), sizeof(T), indexFormat, indexData.data());
+}
+
+template <typename T>
+void CommandList::SetGraphics32BitConstants(u32 rootParam, const T& constants) const {
+	static_assert(sizeof(T) % 4 == 0, "The size of T must be a multiple of 4 bytes.");
+	SetGraphics32BitConstants(rootParam, sizeof(T) / sizeof(u32), &constants);
+}
+
+template <typename T>
+void CommandList::SetCompute32BitConstants(u32 rootParam, const T& constants) const {
+	static_assert(sizeof(T) % 4 == 0, "The size of T must be a multiple of 4 bytes.");
+	SetCompute32BitConstants(rootParam, sizeof(T) / sizeof(u32), &constants);
 }

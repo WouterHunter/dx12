@@ -241,6 +241,9 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 			(D3D12_DESCRIPTOR_HEAP_TYPE)i, 256);
 	}
 
+	// Create mipmapping PSO
+	context->mipmappingPSO = MakeRef<MipmappingPSO>(context);
+
 	return context;
 }
 
@@ -257,6 +260,8 @@ void Context::Destroy(Context* context) {
 
 Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
 	Window* window = new Window{};
+	window->size = size;
+	window->title = title;
 	window->context = this;
 	window->rect = { 0, 0, (LONG)size.x, (LONG)size.y };
 	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
@@ -327,11 +332,7 @@ Ref<Texture> Context::CreateTexture(D3D12_RESOURCE_DESC1 desc1, D3D12_HEAP_TYPE 
 		&desc1, layout, nullptr, nullptr, 0, nullptr,
 		IID_PPV_ARGS(&d3d12Resource)));
 
-	// Find the subresource count and track the texture layout
-	D3D12_RESOURCE_DESC desc = d3d12Resource->GetDesc();
-	u32 arraySize = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1u : desc.DepthOrArraySize;
-	u32 subresourceCount = desc.MipLevels * arraySize;
-	globalLayoutTracker.Register(d3d12Resource.Get(), layout, subresourceCount);
+	globalLayoutTracker.Register(d3d12Resource.Get(), layout);
 
 	Ref<Texture> texture = MakeRef<Texture>(this, d3d12Resource, nullptr, name);
 

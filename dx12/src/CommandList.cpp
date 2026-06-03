@@ -1,7 +1,6 @@
 #include "DX12PCH.h"
 #include "CommandList.h"
 #include "Context.h"
-#include "RootSignature.h"
 #include "PipelineState.h"
 
 CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name) {
@@ -45,7 +44,7 @@ void CommandList::Reset() {
 	ThrowIfFailed(d3dCommandAllocator->Reset());
 	ThrowIfFailed(d3dCommandList->Reset(d3dCommandAllocator.Get(), nullptr));
 	resourceStateTracker.Reset();
-	trackedIntermediates.clear();
+	trackedObjects.clear();
 
 	for (int i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i) {
 		m_DynamicDescriptorHeap[i]->Reset();
@@ -57,7 +56,7 @@ void CommandList::Reset() {
 }
 
 void CommandList::ClearRTV(const Ref<Resource>& resource, FLOAT* clearColor) {
-	TextureBarrier(resource, 0xFFFFFFFF,
+	TextureBarrier(resource, SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_RENDER_TARGET,
 		D3D12_BARRIER_ACCESS_RENDER_TARGET,
 		D3D12_BARRIER_LAYOUT_RENDER_TARGET);
@@ -65,12 +64,17 @@ void CommandList::ClearRTV(const Ref<Resource>& resource, FLOAT* clearColor) {
 }
 
 void CommandList::ClearDSV(const Ref<Resource>& resource, FLOAT depth, u8 stencil) {
-	TextureBarrier(resource, 0xFFFFFFFF,
+	TextureBarrier(resource, SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_DEPTH_STENCIL,
 		D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
 		D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
 	d3dCommandList->ClearDepthStencilView(resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH,
 		depth, stencil, 0, nullptr);
+}
+
+void CommandList::SetPSO(const Ref<PSO> pso) {
+	SetPipelineState(*pso->GetPipelineState());
+	SetRootSignature(*pso->GetRootSignature());
 }
 
 void CommandList::SetPipelineState(PipelineState& pipelineState) {
@@ -92,9 +96,11 @@ void CommandList::SetRootSignature(RootSignature& rootSignature) {
 			m_DynamicDescriptorHeap[i]->ParseRootSignature(rootSignature);
 		}
 
-		d3dCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
+		if (rootSignature.isComputeRootSignature)
+			d3dCommandList->SetComputeRootSignature(m_RootSignature.Get());
+		else
+			d3dCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
 	}
-	d3dCommandList->SetGraphicsRootSignature(rootSignature.d3d12RootSignature.Get());
 }
 
 void CommandList::SetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY primitiveTopology) {
@@ -159,7 +165,7 @@ ComPtr<ID3D12Resource> CommandList::CopyBuffer(size_t bufferSize, const void* bu
 			&resourceDesc, D3D12_BARRIER_LAYOUT_UNDEFINED,
 			nullptr, nullptr, 0, nullptr,
 			IID_PPV_ARGS(&dstBuffer)));
-		TrackIntermediateObject(dstBuffer);
+		TrackObject(dstBuffer);
 	}
 
 	{
@@ -172,7 +178,7 @@ ComPtr<ID3D12Resource> CommandList::CopyBuffer(size_t bufferSize, const void* bu
 			&resourceDesc, D3D12_BARRIER_LAYOUT_UNDEFINED,
 			nullptr, nullptr, 0, nullptr,
 			IID_PPV_ARGS(&intBuffer)));
-		TrackIntermediateObject(intBuffer);
+		TrackObject(intBuffer);
 
 		D3D12_SUBRESOURCE_DATA subresourceData = {
 			.pData = bufferData,
@@ -194,8 +200,8 @@ ComPtr<ID3D12Resource> CommandList::CopyBuffer(size_t bufferSize, const void* bu
 void CommandList::CopyResource(ComPtr<ID3D12Resource> dstRes, ComPtr<ID3D12Resource> srcRes) {
 	ASSERT(dstRes && srcRes);
 	d3dCommandList->CopyResource(dstRes.Get(), srcRes.Get());
-	TrackIntermediateObject(dstRes);
-	TrackIntermediateObject(srcRes);
+	TrackObject(dstRes);
+	TrackObject(srcRes);
 }
 
 void CommandList::CopyResource(const Ref<Resource>& dstRes, const Ref<Resource>& srcRes) {
@@ -222,8 +228,8 @@ void CommandList::CopyTextureSubresource(const Ref<Texture>& texture, u32 firstS
 
 		UpdateSubresources(d3dCommandList.Get(), dstResource.Get(), intResource.Get(), 0, firstSubresource, numSubresources, data);
 
-		TrackIntermediateObject(dstResource);
-		TrackIntermediateObject(intResource);
+		TrackObject(dstResource);
+		TrackObject(intResource);
 	}
 }
 
@@ -258,7 +264,7 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 			return nullptr;
 		}
 	} else {
-		if (FAILED(LoadFromWICFile(filePath.c_str(), DirectX::WIC_FLAGS_FORCE_RGB, &metadata, scratchImage))) {
+		if (FAILED(LoadFromWICFile(filePath.c_str(), DirectX::WIC_FLAGS_FORCE_RGB | DirectX::WIC_FLAGS_FORCE_LINEAR, &metadata, scratchImage))) {
 			LogError("CommandList::LoadImageFromFile: Unable to load WIC image file from \"{}\"", filePath.string());
 			return nullptr;
 		}
@@ -266,6 +272,7 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 
 	// Force the texture format to be sRGB to convert to linear when sampling the texture in a shader.
 	if (sRGB) metadata.format = DirectX::MakeSRGB(metadata.format);
+	else metadata.format = DirectX::MakeLinear(metadata.format);
 
 	D3D12_RESOURCE_DESC1 textureDesc = {};
 	switch (metadata.dimension) {
@@ -310,18 +317,161 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 
 	CopyTextureSubresource(texture, 0, static_cast<uint32_t>(subresources.size()), subresources.data());
 
-	//if (generateMips && subresources.size() < texResource->GetDesc().MipLevels) {
-	//	if (!GenerateMipmaps(texture)) {
-	//		LogError("CommandList::LoadImageFromFile: Unable to generate mipmaps from image \"{}\"", filePath.string());
-	//	}
-	//}
-
 	TextureBarrier(texture, SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_PIXEL_SHADING,
 		D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-		D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE);
+		D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+
+	if (generateMips && subresources.size() < texResource->GetDesc().MipLevels) {
+		if (!GenerateMipmaps(texture)) {
+			LogError("CommandList::LoadImageFromFile: Unable to generate mipmaps from image \"{}\"", filePath.string());
+		}
+	}
 
 	return texture;
+}
+
+bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
+
+	const auto texResource = texture->GetD3D12Resource().Get();
+	const auto resourceDesc = texture->GetD3D12ResourceDesc();
+	const auto d3d12Device = context->GetDevice().d3d12Device10;
+
+	// First check if mipmapping is supported on this texture.
+	if (resourceDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
+		resourceDesc.DepthOrArraySize != 1 ||
+		resourceDesc.SampleDesc.Count > 1) {
+		LogError("CommandList::GenerateMipmaps: Mipmapping is only supported for non-multi-sampled 2D textures.");
+		return false;
+	}
+	if (!texture->CheckUAVSupport()) {
+		LogError("CommandList::GenerateMipmaps: Texture doesn't have UAV support.");
+		return false;
+	}
+
+	SetPSO(context->GetMipmappingPSO());
+
+	GenerateMipsBuffer genMipsBuffer{};
+	genMipsBuffer.IsSRGB = IsSRGBFormat(resourceDesc.Format);
+
+	// Create a temporary descriptor heap for the single SRV and 4 UAVs per mip-level.
+	ComPtr<ID3D12DescriptorHeap> descriptorHeap;
+	D3D12_DESCRIPTOR_HEAP_DESC heapDesc = {};
+	heapDesc.NumDescriptors = 1 + AlignUp(resourceDesc.MipLevels - 1, 4);
+	heapDesc.Type = D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV;
+	heapDesc.Flags = D3D12_DESCRIPTOR_HEAP_FLAG_SHADER_VISIBLE;
+	heapDesc.NodeMask = 0;
+	ThrowIfFailed(d3d12Device->CreateDescriptorHeap(&heapDesc, IID_PPV_ARGS(&descriptorHeap)));
+	TrackObject(descriptorHeap);
+
+	// Get descriptor heap start handles and increment size.
+	CPUHandle cpuHeapStart(descriptorHeap->GetCPUDescriptorHandleForHeapStart());
+	GPUHandle gpuHeapStart(descriptorHeap->GetGPUDescriptorHandleForHeapStart());
+	u32 heapIncrSize = d3d12Device->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV);
+
+	// Create an SRV that uses the format of the original texture.
+	D3D12_SHADER_RESOURCE_VIEW_DESC srvDesc = {};
+	srvDesc.Format = resourceDesc.Format;
+	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
+	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
+	srvDesc.Texture2D.MipLevels = resourceDesc.MipLevels;
+	d3d12Device->CreateShaderResourceView(texResource, &srvDesc, cpuHeapStart);
+
+	ID3D12DescriptorHeap* ppHeap[] = { descriptorHeap.Get()};
+	d3dCommandList->SetDescriptorHeaps(1, ppHeap);
+
+	for (u32 srcMip = 0; srcMip < resourceDesc.MipLevels - 1u;) {
+		u64 srcWidth = resourceDesc.Width >> srcMip;
+		u32 srcHeight = resourceDesc.Height >> srcMip;
+		u32 dstWidth = static_cast<u32>(srcWidth >> 1);
+		u32 dstHeight = srcHeight >> 1;
+
+		// 0b00(0): Both width and height are even.
+		// 0b01(1): Width is odd, height is even.
+		// 0b10(2): Width is even, height is odd.
+		// 0b11(3): Both width and height are odd.
+		genMipsBuffer.SrcDimension = static_cast<u64>(1 & srcHeight) << 1 | (srcWidth & 1);
+
+		// How many mipmap levels to compute this pass (max 4 mips per pass)
+		DWORD mipCount;
+
+		// The number of times we can half the size of the texture and get
+		// exactly a 50% reduction in size.
+		// A 1 bit in the width or height indicates an odd dimension.
+		// The case where either the width or the height is exactly 1 is handled
+		// as a special case (as the dimension does not require reduction).
+		_BitScanForward(&mipCount,
+			(dstWidth == 1 ? dstHeight : dstWidth) | (dstHeight == 1 ? dstWidth : dstHeight));
+		// Maximum number of mips to generate is 4.
+		mipCount = std::min<DWORD>(4, mipCount + 1);
+		// Clamp to total number of mips left over.
+		mipCount = (srcMip + mipCount) >= resourceDesc.MipLevels ? resourceDesc.MipLevels - srcMip - 1 : mipCount;
+
+		// Dimensions should not reduce to 0.
+		// This can happen if the width and height are not the same.
+		dstWidth = std::max<DWORD>(1, dstWidth);
+		dstHeight = std::max<DWORD>(1, dstHeight);
+
+		genMipsBuffer.SrcMipLevel = srcMip;
+		genMipsBuffer.NumMipLevels = mipCount;
+		genMipsBuffer.TexelSize.x = 1.0f / static_cast<float>(dstWidth);
+		genMipsBuffer.TexelSize.y = 1.0f / static_cast<float>(dstHeight);
+
+		SetCompute32BitConstants(MipmappingPSO::GenerateMips_CB, genMipsBuffer);
+		
+		// TransitionBarrier(texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, false, srcMip);
+		resourceStateTracker.TransitionTexture(
+			texResource, srcMip,
+			D3D12_BARRIER_SYNC_NON_PIXEL_SHADING,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+			D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+
+		d3dCommandList->SetComputeRootDescriptorTable(MipmappingPSO::SrcMip_SRV, gpuHeapStart);
+
+		for (u32 mip = 0; mip < 4; ++mip) {
+			u32 mipIndex = srcMip + mip + 1;
+			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+
+			if (mip < mipCount) {
+				uavDesc.Format = resourceDesc.Format;
+				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+				uavDesc.Texture2D.MipSlice = mipIndex;
+
+				//TransitionBarrier(texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, false, mipIndex);
+				resourceStateTracker.TransitionTexture(
+					texResource, mipIndex,
+					D3D12_BARRIER_SYNC_ALL_SHADING,
+					D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
+					D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS);
+
+			} else {
+				// Create null descriptors to pad unused UAVs in the shader.
+				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+				uavDesc.Format = DXGI_FORMAT_R8G8B8A8_UNORM;
+				uavDesc.Texture2D.MipSlice = 0;
+				uavDesc.Texture2D.PlaneSlice = 0;
+			}
+			d3d12Device->CreateUnorderedAccessView(texResource, nullptr, &uavDesc, CPUHandle(cpuHeapStart, mipIndex, heapIncrSize));
+		}
+		d3dCommandList->SetComputeRootDescriptorTable(MipmappingPSO::OutMips_UAV, GPUHandle(gpuHeapStart, srcMip + 1, heapIncrSize));
+
+		Dispatch(DivideByMultiple(dstWidth, 8), DivideByMultiple(dstHeight, 8));
+		
+		// UAV Barrier
+		resourceStateTracker.UAVTextureBarrier(texResource, srcMip + 1, mipCount);
+
+		srcMip += mipCount;
+	}
+
+	// Reset to shader resource state
+	resourceStateTracker.TransitionTexture(
+		texResource, SUBRESOURCE_ALL,
+		D3D12_BARRIER_SYNC_PIXEL_SHADING,
+		D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+		D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
+	resourceStateTracker.FlushImmediateBarriers(this);
+
+	return true;
 }
 
 
@@ -362,21 +512,28 @@ void CommandList::BufferBarrier(
 void CommandList::SetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE heapType, ID3D12DescriptorHeap* heap) {
 	if (m_DescriptorHeaps[heapType] != heap) {
 		m_DescriptorHeaps[heapType] = heap;
-		BindDescriptorHeaps();
+
+		// Bind all heaps
+		ID3D12DescriptorHeap* descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] = {};
+		u32 numDescriptorHeaps = 0;
+		for (u32 i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i) {
+			ID3D12DescriptorHeap* descriptorHeap = m_DescriptorHeaps[i];
+			if (descriptorHeap) {
+				descriptorHeaps[numDescriptorHeaps++] = descriptorHeap;
+			}
+		}
+
+		d3dCommandList->SetDescriptorHeaps(numDescriptorHeaps, descriptorHeaps);
 	}
 }
 
-void CommandList::BindDescriptorHeaps() {
-	ID3D12DescriptorHeap* descriptorHeaps[D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES] = {};
-	u32 numDescriptorHeaps = 0;
-	for (u32 i = 0; i < D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES; ++i) {
-		ID3D12DescriptorHeap* descriptorHeap = m_DescriptorHeaps[i];
-		if (descriptorHeap) {
-			descriptorHeaps[numDescriptorHeaps++] = descriptorHeap;
-		}
-	}
+void CommandList::SetGraphics32BitConstants(u32 rootParam, u32 numConstants, const void* constants) const {
 
-	d3dCommandList->SetDescriptorHeaps(numDescriptorHeaps, descriptorHeaps);
+	d3dCommandList->SetGraphicsRoot32BitConstants(rootParam, numConstants, constants, 0);
+}
+
+void CommandList::SetCompute32BitConstants(u32 rootParam, u32 numConstants, const void* constants) const {
+	d3dCommandList->SetComputeRoot32BitConstants(rootParam, numConstants, constants, 0);
 }
 
 void CommandList::SetShaderResourceView(i32 rootParameterIndex, u32 descriptorOffset, const Ref<Texture>& texture) {
@@ -394,6 +551,11 @@ void CommandList::DrawIndexed(u32 indexCount, u32 instanceCount, u32 startIndex,
 	d3dCommandList->DrawIndexedInstanced(indexCount, instanceCount, startIndex, baseVertex, startInstance);
 }
 
-void CommandList::TrackIntermediateObject(ComPtr<ID3D12Object> object) { 
-	trackedIntermediates.push_back(object); 
+void CommandList::Dispatch(u32 groupCountX, u32 groupCountY, u32 groupCountZ) {
+	resourceStateTracker.FlushImmediateBarriers(this);
+	d3dCommandList->Dispatch(groupCountX, groupCountY, groupCountZ);
+}
+
+void CommandList::TrackObject(ComPtr<ID3D12Object> object) { 
+	trackedObjects.push_back(object); 
 }

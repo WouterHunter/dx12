@@ -3,7 +3,6 @@
 #include "Context.h"
 #include "CommandList.h"
 #include "Resource.h"
-#include "RootSignature.h"
 #include "PipelineState.h"
 #include "ResourceStateTracker.h"
 
@@ -124,7 +123,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc(_countof(rootParams), rootParams, 
 		0, nullptr, rootSignatureFlags);
 
-	RootSignature rootSignature = RootSignature::Create(context, rootSignatureDesc.Desc_1_1);
+	RootSignature rootSignature = RootSignature(context, rootSignatureDesc.Desc_1_1);
 
 	// Load vertex and pixel shaders
 	ComPtr<ID3DBlob> vertexShaderBlob;
@@ -156,7 +155,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		.rasterizer = rasterizerDesc,
 	};
 
-	PipelineState pipelineState = PipelineState::Create(context, &pipelineStateStream);
+	PipelineState pipelineState = PipelineState(context, &pipelineStateStream);
 
 	// Create the descriptor heap for the depth-stencil view.
 	D3D12_DESCRIPTOR_HEAP_DESC dsvHeapDesc = {
@@ -190,7 +189,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 
 	// Register depth buffer with layout tracker
 	context->GetGlobalLayoutTracker().Register(
-		depthBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE, 1);
+		depthBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
 
 	// Update the depth-stencil view.
 	D3D12_DEPTH_STENCIL_VIEW_DESC dsv = {};
@@ -236,7 +235,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 		mat4 proj = glm::perspective(fov, aspect, nearPlane, farPlane);
 		mat4 view = glm::lookAt(eye, center, up);
 		mat4 mvp = proj * view * model;
-		d3d12CommandList->SetGraphicsRoot32BitConstants(0, sizeof(mat4) / 4, glm::value_ptr(mvp), 0);
+		commandList->SetGraphics32BitConstants(0, mvp);
 
 		// Draw the triangle
 		d3d12CommandList->DrawIndexedInstanced(_countof(TRIANGLE_INDICES), 1, 0, 0, 0);

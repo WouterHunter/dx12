@@ -4,8 +4,9 @@
 #include "Device.h"
 
 
-RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE_DESC1& desc) {
-    RootSignature rootSig = { .context = context };
+RootSignature::RootSignature(Context* context, const D3D12_ROOT_SIGNATURE_DESC1& desc, bool isCompute)
+    : isComputeRootSignature(isCompute)
+{
     Device& device = context->GetDevice();
 
     // Set root signature desc
@@ -16,8 +17,7 @@ RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE
         const D3D12_ROOT_PARAMETER1& rootParameter = desc.pParameters[i];
         pParameters[i] = rootParameter;
 
-        if (rootParameter.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE)
-        {
+        if (rootParameter.ParameterType == D3D12_ROOT_PARAMETER_TYPE_DESCRIPTOR_TABLE) {
             UINT                     numDescriptorRanges = rootParameter.DescriptorTable.NumDescriptorRanges;
             D3D12_DESCRIPTOR_RANGE1* pDescriptorRanges =
                 numDescriptorRanges > 0 ? new D3D12_DESCRIPTOR_RANGE1[numDescriptorRanges] : nullptr;
@@ -29,25 +29,22 @@ RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE
             pParameters[i].DescriptorTable.pDescriptorRanges = pDescriptorRanges;
 
             // Set the bit mask depending on the type of descriptor table.
-            if (numDescriptorRanges > 0)
-            {
-                switch (pDescriptorRanges[0].RangeType)
-                {
+            if (numDescriptorRanges > 0) {
+                switch (pDescriptorRanges[0].RangeType) {
                 case D3D12_DESCRIPTOR_RANGE_TYPE_CBV:
                 case D3D12_DESCRIPTOR_RANGE_TYPE_SRV:
                 case D3D12_DESCRIPTOR_RANGE_TYPE_UAV:
-                    rootSig.descriptorTableBitMask |= (1 << i);
+                    descriptorTableBitMask |= (1 << i);
                     break;
                 case D3D12_DESCRIPTOR_RANGE_TYPE_SAMPLER:
-                    rootSig.samplerTableBitMask |= (1 << i);
+                    samplerTableBitMask |= (1 << i);
                     break;
                 }
             }
 
             // Count the number of descriptors in the descriptor table.
-            for (UINT j = 0; j < numDescriptorRanges; ++j)
-            {
-                rootSig.numDescriptorsPerTable[i] += pDescriptorRanges[j].NumDescriptors;
+            for (UINT j = 0; j < numDescriptorRanges; ++j) {
+                numDescriptorsPerTable[i] += pDescriptorRanges[j].NumDescriptors;
             }
         }
     }
@@ -57,10 +54,10 @@ RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE
         numStaticSamplers > 0 ? new D3D12_STATIC_SAMPLER_DESC[numStaticSamplers] : nullptr;
 
     if (pStaticSamplers) {
-        memcpy(pStaticSamplers, desc.pStaticSamplers,sizeof(D3D12_STATIC_SAMPLER_DESC) * numStaticSamplers);
+        memcpy(pStaticSamplers, desc.pStaticSamplers, sizeof(D3D12_STATIC_SAMPLER_DESC) * numStaticSamplers);
     }
 
-    rootSig.d3d12Desc = D3D12_ROOT_SIGNATURE_DESC1{
+    d3d12Desc = D3D12_ROOT_SIGNATURE_DESC1{
         .NumParameters = numParameters,
         .pParameters = pParameters,
         .NumStaticSamplers = numStaticSamplers,
@@ -83,13 +80,10 @@ RootSignature RootSignature::Create(Context* context, const D3D12_ROOT_SIGNATURE
 
     // Create the root signature.
     ThrowIfFailed(d3d12Device->CreateRootSignature(0, rootSignatureBlob->GetBufferPointer(),
-        rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&rootSig.d3d12RootSignature)));
-
-    return rootSig;
+        rootSignatureBlob->GetBufferSize(), IID_PPV_ARGS(&d3d12RootSignature)));
 }
 
-void RootSignature::Destroy() {
-    
+RootSignature::~RootSignature() {
     // Delete all allocated memory
     for (UINT i = 0; i < d3d12Desc.NumParameters; ++i) {
         const D3D12_ROOT_PARAMETER1& param = d3d12Desc.pParameters[i];
@@ -98,11 +92,6 @@ void RootSignature::Destroy() {
     }
     delete[] d3d12Desc.pParameters;
     delete[] d3d12Desc.pStaticSamplers;
-
-    // Zero out all everything except context pointer
-    Context* ctx = context;
-    memset(this, 0, sizeof(RootSignature));
-    context = ctx;
 }
 
 u32 RootSignature::GetDescriptorTableBitMask(D3D12_DESCRIPTOR_HEAP_TYPE descriptorHeapType) const {
@@ -115,5 +104,5 @@ u32 RootSignature::GetDescriptorTableBitMask(D3D12_DESCRIPTOR_HEAP_TYPE descript
 
 u32 RootSignature::GetNumDescriptors(u32 rootIndex) const {
     assert(rootIndex < 32);
-	return numDescriptorsPerTable[rootIndex];
+    return numDescriptorsPerTable[rootIndex];
 }

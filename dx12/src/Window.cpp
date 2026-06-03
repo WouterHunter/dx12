@@ -53,7 +53,7 @@ void SwapChain::UpdateBackBuffers() {
 
 		// Register back buffers with the global layout tracker (initial layout is PRESENT/COMMON)
 		context->GetGlobalLayoutTracker().Register(
-			backBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_PRESENT, 1);
+			backBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_PRESENT);
 	}
 }
 
@@ -127,9 +127,11 @@ bool Window::PollEvents() {
 	rollingAvgDelta = glm::mix(rollingAvgDelta, deltaTime, alpha);
 	f64 fps = glm::round(1.0 / rollingAvgDelta);
 
-	// Display the FPS in the window title bar
-	std::wstring windowText = fmt::format(L"FPS: {:3.0f}", fps);
-	SetWindowTextW(hWnd, windowText.c_str());
+	if (showTitleFPS) {
+		// Display the FPS in the window title bar
+		std::wstring windowText = fmt::format(L"FPS: {:3.0f}", fps);
+		SetWindowTextW(hWnd, windowText.c_str());
+	}
 
 	return true;
 }

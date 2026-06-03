@@ -183,6 +183,55 @@ bool Texture::HasAlpha() const
     }
 }
 
+
+// Get a UAV description that matches the resource description.
+static D3D12_UNORDERED_ACCESS_VIEW_DESC GetUAVDesc(
+    const D3D12_RESOURCE_DESC& resDesc, 
+    UINT mipSlice, 
+    UINT arraySlice = 0,
+    UINT planeSlice = 0) 
+{
+    D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
+    uavDesc.Format = resDesc.Format;
+
+    switch (resDesc.Dimension) {
+    case D3D12_RESOURCE_DIMENSION_TEXTURE1D:
+        if (resDesc.DepthOrArraySize > 1) {
+            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1DARRAY;
+            uavDesc.Texture1DArray.ArraySize = resDesc.DepthOrArraySize - arraySlice;
+            uavDesc.Texture1DArray.FirstArraySlice = arraySlice;
+            uavDesc.Texture1DArray.MipSlice = mipSlice;
+        } else {
+            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE1D;
+            uavDesc.Texture1D.MipSlice = mipSlice;
+        }
+        break;
+    case D3D12_RESOURCE_DIMENSION_TEXTURE2D:
+        if (resDesc.DepthOrArraySize > 1) {
+            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2DARRAY;
+            uavDesc.Texture2DArray.ArraySize = resDesc.DepthOrArraySize - arraySlice;
+            uavDesc.Texture2DArray.FirstArraySlice = arraySlice;
+            uavDesc.Texture2DArray.PlaneSlice = planeSlice;
+            uavDesc.Texture2DArray.MipSlice = mipSlice;
+        } else {
+            uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
+            uavDesc.Texture2D.PlaneSlice = planeSlice;
+            uavDesc.Texture2D.MipSlice = mipSlice;
+        }
+        break;
+    case D3D12_RESOURCE_DIMENSION_TEXTURE3D:
+        uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE3D;
+        uavDesc.Texture3D.WSize = resDesc.DepthOrArraySize - arraySlice;
+        uavDesc.Texture3D.FirstWSlice = arraySlice;
+        uavDesc.Texture3D.MipSlice = mipSlice;
+        break;
+    default:
+        throw std::exception("Invalid resource dimension.");
+    }
+
+    return uavDesc;
+}
+
 void Texture::CreateViews() {
     if (d3d12Resource) {
         auto d3d12Device = m_Context->GetDevice().d3d12Device10;
@@ -207,16 +256,16 @@ void Texture::CreateViews() {
             d3d12Device->CreateShaderResourceView(d3d12Resource.Get(), nullptr,
                 m_ShaderResourceView.GetHandle());
         }
-        //// Create UAV for each mip (only supported for 1D and 2D textures).
-        //if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && CheckUAVSupport() &&
-        //    desc.DepthOrArraySize == 1) {
-        //    m_UnorderedAccessView =
-        //        m_Context->AllocateDescriptors(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.MipLevels);
-        //    for (int i = 0; i < desc.MipLevels; ++i) {
-        //        auto uavDesc = GetUAVDesc(desc, i);
-        //        d3d12Device->CreateUnorderedAccessView(d3d12Resource.Get(), nullptr, &uavDesc,
-        //            m_UnorderedAccessView.GetHandle(i));
-        //    }
-        //}
+        // Create UAV for each mip (only supported for 1D and 2D textures).
+        if ((desc.Flags & D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS) != 0 && CheckUAVSupport() &&
+            desc.DepthOrArraySize == 1) {
+            m_UnorderedAccessView =
+                m_Context->AllocateDescriptors(D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV, desc.MipLevels);
+            for (int i = 0; i < desc.MipLevels; ++i) {
+                auto uavDesc = GetUAVDesc(desc, i);
+                d3d12Device->CreateUnorderedAccessView(d3d12Resource.Get(), nullptr, &uavDesc,
+                    m_UnorderedAccessView.GetHandle(i));
+            }
+        }
     }
 }

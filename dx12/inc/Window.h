@@ -54,8 +54,11 @@ struct Window {
 	HWND hWnd; // Window handle.
 	RECT rect; // Window rectangle (used to toggle fullscreen state).
 
-	ivec2 size = { 1280, 720 };
+	ivec2 size;
+	std::wstring title;
+
 	b8 initialized = false;
+	b8 showTitleFPS = true;
 
 	Context* context;
 	SwapChain swapChain;

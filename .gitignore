@@ -7,6 +7,9 @@
 /bin
 /int
 
+# Ignore these specific directories
+/dx12/inc/shaders
+
 # File Types
 *.cap
 *.ini

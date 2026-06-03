@@ -79,9 +79,12 @@ public:
 		D3D12_BARRIER_ACCESS accessAfter
 	);
 
-	void UAVBarrier(ID3D12Resource* resource, bool isTexture);
-	void FlushImmediateBarriers(CommandList* commandList);
+	void UAVBufferBarrier(ID3D12Resource* resource);
+	void UAVTextureBarrier(ID3D12Resource* resource, 
+		u32 firstSubresource, 
+		u32 numSubresources);
 
+	void FlushImmediateBarriers(CommandList* commandList);
 	const std::vector<PendingTextureBarrier>& GetPendingTextureBarriers() const { return m_pendingTextureBarriers; }
 	const TextureStateMap& GetFinalTextureStates() const { return m_localTextureStates; }
 
@@ -109,7 +112,7 @@ class GlobalLayoutTracker {
 public:
 	void Init(Context* context);
 
-	void Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount = 1);
+	void Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout);
 	void Unregister(ID3D12Resource* resource);
 
 	// Commit final texture layouts. This must be called when the command list submitted

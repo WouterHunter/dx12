@@ -7,6 +7,7 @@
 #include "Texture.h"
 #include "ResourceStateTracker.h"
 #include "DescriptorAllocator.h"
+#include "PipelineState.h"
 
 
 /** D3D12 library context */
@@ -36,9 +37,9 @@ struct Context : NonCopyable
 	CommandQueue& CommandQueueCopy() { return commandQueueCopy; }
 	ThreadPool& GetThreadPool() { return threadPool; }
 	GlobalLayoutTracker& GetGlobalLayoutTracker() { return globalLayoutTracker; }
+	const Ref<MipmappingPSO>& GetMipmappingPSO() const { return mipmappingPSO; }
 
 	DescriptorAllocation AllocateDescriptors(D3D12_DESCRIPTOR_HEAP_TYPE type, uint32_t numDescriptors = 1);
-
 
 private:
 	Context() = default;
@@ -56,4 +57,6 @@ private:
 
 	ThreadPool threadPool{};
 	GlobalLayoutTracker globalLayoutTracker{};
+
+	Ref<MipmappingPSO> mipmappingPSO;
 };
