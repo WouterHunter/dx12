@@ -75,8 +75,10 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	args.width = 1024;
 	args.height = 1024;
 	args.vSync = true;
+	args.showFPS = true;
+
 	Context* context = Context::Create(hInstance, IDI_ICON1);
-	Window* window = context->CreateWindow(L"DX12 - Cube", { args.width, args.height }, args.vSync);
+	Window* window = context->CreateWindow(L"DX12 - Cube", args);
 	CommandQueue& commandQueue = context->CommandQueueDirect();
 	CommandList* commandList = commandQueue.GetCommandList();
 

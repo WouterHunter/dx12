@@ -16,7 +16,7 @@ struct Context : NonCopyable
 	static Context* Create(HINSTANCE hInst, int icon);
 	static void Destroy(Context* context);
 
-	struct Window* CreateWindow(const wchar_t* title, ivec2 size, bool vSync = true);
+	struct Window* CreateWindow(const wchar_t* title, const CommandLineArgs& args);
 	void DestroyWindow(Window* window);
 
 	void FlushAllCommandQueues();

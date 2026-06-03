@@ -267,9 +267,9 @@ void ResourceStateTracker::TransitionBuffer(
 void ResourceStateTracker::UAVBufferBarrier(ID3D12Resource* resource) {
 	SubresourceKey key = { resource, 0 };
 	auto it = m_localBufferStates.find(key);
-	ASSERT(it != m_localBufferStates.end(), "Unknown subresource key");
-	ASSERT(it->second.lastSync & D3D12_BARRIER_SYNC_ALL_SHADING, "Invalid sync state");
-	ASSERT(it->second.lastAccess & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, "Invalid access state");
+	ASSERT_MSG(it != m_localBufferStates.end(), "Unknown subresource key");
+	ASSERT_MSG(it->second.lastSync & D3D12_BARRIER_SYNC_ALL_SHADING, "Invalid sync state");
+	ASSERT_MSG(it->second.lastAccess & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, "Invalid access state");
 
 	D3D12_BUFFER_BARRIER barrier = {};
 	barrier.SyncBefore = D3D12_BARRIER_SYNC_ALL_SHADING;
@@ -286,9 +286,9 @@ void ResourceStateTracker::UAVTextureBarrier(ID3D12Resource* resource, u32 first
 	for (u32 i = 0; i < numSubresources; ++i) {
 		SubresourceKey key = { resource, firstSubresource + i };
 		auto it = m_localTextureStates.find(key);
-		ASSERT(it != m_localTextureStates.end(), "Unknown subresource key");
-		ASSERT(it->second.lastSync & D3D12_BARRIER_SYNC_ALL_SHADING, "Invalid sync state");
-		ASSERT(it->second.lastAccess & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, "Invalid access state");
+		ASSERT_MSG(it != m_localTextureStates.end(), "Unknown subresource key");
+		ASSERT_MSG(it->second.lastSync & D3D12_BARRIER_SYNC_ALL_SHADING, "Invalid sync state");
+		ASSERT_MSG(it->second.lastAccess & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, "Invalid access state");
 	}
 
 	D3D12_TEXTURE_BARRIER barrier = {};

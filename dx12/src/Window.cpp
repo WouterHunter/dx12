@@ -127,7 +127,7 @@ bool Window::PollEvents() {
 	rollingAvgDelta = glm::mix(rollingAvgDelta, deltaTime, alpha);
 	f64 fps = glm::round(1.0 / rollingAvgDelta);
 
-	if (showTitleFPS) {
+	if (showFPS) {
 		// Display the FPS in the window title bar
 		std::wstring windowText = fmt::format(L"FPS: {:3.0f}", fps);
 		SetWindowTextW(hWnd, windowText.c_str());

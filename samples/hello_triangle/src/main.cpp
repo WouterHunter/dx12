@@ -77,7 +77,7 @@ int CALLBACK wWinMain(HINSTANCE hInstance, HINSTANCE, PWSTR lpCmdLine, int) {
 	// Initialize
 	CommandLineArgs args = ParseCommandLineArguments(lpCmdLine);
 	Context* context = Context::Create(hInstance, IDI_ICON1);
-	Window* window = context->CreateWindow(L"DX12 - Hello Triangle", { args.width, args.height }, args.vSync);
+	Window* window = context->CreateWindow(L"DX12 - Hello Triangle", args);
 	CommandQueue& commandQueue = context->CommandQueueDirect();
 	CommandList* commandList = commandQueue.GetCommandList();
 

@@ -3,7 +3,8 @@
 struct CommandLineArgs {
     i32 width{ 1280 };
 	i32 height{ 720 };
-	b8 vSync{ false };
+	bool vSync{ false };
+	bool showFPS{ false };
 };
 
 inline CommandLineArgs ParseCommandLineArguments(LPWSTR cmdLine) {
@@ -12,12 +13,14 @@ inline CommandLineArgs ParseCommandLineArguments(LPWSTR cmdLine) {
 	wchar_t** argv = CommandLineToArgvW(cmdLine, &argc);
 
 	for (i32 i = 0; i < argc; ++i) {
-		if (::wcscmp(argv[i], L"-w") == 0 || ::wcscmp(argv[i], L"--width") == 0)
+		if (::wcscmp(argv[i], L"-w") == 0)
 			args.width = ::wcstol(argv[++i], nullptr, 10);
-		if (::wcscmp(argv[i], L"-h") == 0 || ::wcscmp(argv[i], L"--height") == 0)
+		if (::wcscmp(argv[i], L"-h") == 0)
 			args.height = ::wcstol(argv[++i], nullptr, 10);
-		if (::wcscmp(argv[i], L"-vsync") == 0 || ::wcscmp(argv[i], L"--vsync") == 0)
+		if (::wcscmp(argv[i], L"-vsync") == 0)
 			args.vSync = true;
+		if (::wcscmp(argv[i], L"-fps") == 0)
+			args.showFPS = true;
 	}
 
 	LocalFree((HLOCAL)argv); // Free memory allocated by CommandLineToArgvW

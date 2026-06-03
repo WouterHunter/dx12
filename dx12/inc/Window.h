@@ -58,7 +58,7 @@ struct Window {
 	std::wstring title;
 
 	b8 initialized = false;
-	b8 showTitleFPS = true;
+	b8 showFPS = false;
 
 	Context* context;
 	SwapChain swapChain;

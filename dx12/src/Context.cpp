@@ -258,12 +258,13 @@ void Context::Destroy(Context* context) {
 	delete context;
 }
 
-Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
+Window* Context::CreateWindow(const wchar_t* title, const CommandLineArgs& args) {
 	Window* window = new Window{};
-	window->size = size;
+	window->size = { args.width, args.height };
 	window->title = title;
+	window->showFPS = args.showFPS;
 	window->context = this;
-	window->rect = { 0, 0, (LONG)size.x, (LONG)size.y };
+	window->rect = { 0, 0, (LONG)args.width, (LONG)args.height };
 	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
 
 	window->hWnd = CreateWindowExW(
@@ -282,7 +283,7 @@ Window* Context::CreateWindow(const wchar_t* title, ivec2 size, bool vSync) {
 	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
 
 	CreateConsole(); // Create debug console while using WINDOWS subsystem
-	CreateWindowSwapChain(window, vSync, false);
+	CreateWindowSwapChain(window, args.vSync, false);
 
 	window->initialized = true;
 
