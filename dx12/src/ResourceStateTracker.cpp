@@ -141,17 +141,52 @@ namespace {
 			str(barrier.LayoutAfter));
 	};
 
+	u32 GetResourceArraySize(ID3D12Resource* resource) {
+		D3D12_RESOURCE_DESC desc = resource->GetDesc();
+		u32 arraySize = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1u : desc.DepthOrArraySize;
+		return arraySize;
+	}
+
 	u32 GetSubresourceCount(ID3D12Resource* resource) {
 		D3D12_RESOURCE_DESC desc = resource->GetDesc();
 		u32 arraySize = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1u : desc.DepthOrArraySize;
 		u32 subresourceCount = desc.MipLevels * arraySize;
 		return subresourceCount;
 	}
+
+	void PlaceGroupedBarriers(
+		const ComPtr<ID3D12GraphicsCommandList7>& d3d12CommandList,
+		const std::vector<D3D12_TEXTURE_BARRIER>& textureBarriers,
+		const std::vector<D3D12_BUFFER_BARRIER>& bufferBarriers
+	) {
+		D3D12_BARRIER_GROUP groups[2];
+		UINT32 numGroups = 0;
+
+		if (!textureBarriers.empty()) {
+			D3D12_BARRIER_GROUP& texGroup = groups[numGroups++];
+			texGroup.Type = D3D12_BARRIER_TYPE_TEXTURE;
+			texGroup.NumBarriers = (UINT32)textureBarriers.size();
+			texGroup.pTextureBarriers = textureBarriers.data();
+		}
+
+		if (!bufferBarriers.empty()) {
+			D3D12_BARRIER_GROUP& bufGroup = groups[numGroups++];
+			bufGroup.Type = D3D12_BARRIER_TYPE_BUFFER;
+			bufGroup.NumBarriers = (UINT32)bufferBarriers.size();
+			bufGroup.pBufferBarriers = bufferBarriers.data();
+		}
+
+		d3d12CommandList->Barrier(numGroups, groups);
+	}
 }
 
 // ============================================================================
 // ResourceStateTracker
 // ============================================================================
+
+void ResourceStateTracker::Init(D3D12_COMMAND_LIST_TYPE commandListType) {
+	m_type = commandListType;
+}
 
 void ResourceStateTracker::TransitionTexture(
 	ID3D12Resource* resource,
@@ -167,10 +202,15 @@ void ResourceStateTracker::TransitionTexture(
 		for (u32 i = 0; i < count; ++i) {
 			TransitionTexture(
 				resource, i,
-				syncAfter, accessAfter, 
+				syncAfter, accessAfter,
 				layoutAfter, discard);
 		}
 	} else {
+		D3D12_BARRIER_LAYOUT layout = GetQueueTypeSpecificBarrierLayout(m_type, layoutAfter);
+		D3D12_TEXTURE_BARRIER_FLAGS flags = discard ?
+			D3D12_TEXTURE_BARRIER_FLAG_DISCARD :
+			D3D12_TEXTURE_BARRIER_FLAG_NONE;
+
 		SubresourceKey key = { resource, subresource };
 		auto it = m_localTextureStates.find(key);
 
@@ -184,14 +224,14 @@ void ResourceStateTracker::TransitionTexture(
 			barrier.AccessBefore = localState.lastAccess;
 			barrier.AccessAfter = accessAfter;
 			barrier.LayoutBefore = localState.layout;
-			barrier.LayoutAfter = layoutAfter;
+			barrier.LayoutAfter = layout;
 			barrier.pResource = resource;
 			barrier.Subresources.IndexOrFirstMipLevel = subresource;
 			barrier.Subresources.NumMipLevels = 0; // Indicates IndexOrFirstMipLevel is a subresource index
-			barrier.Flags = discard ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
+			barrier.Flags = flags;
 
 			// Skip no-op barriers (same layout, no cache flush needed)
-			bool layoutChange = localState.layout != layoutAfter;
+			bool layoutChange = localState.layout != layout;
 			bool accessFlush = (localState.lastAccess != D3D12_BARRIER_ACCESS_NO_ACCESS) &&
 				(localState.lastAccess != accessAfter || layoutChange);
 
@@ -200,25 +240,27 @@ void ResourceStateTracker::TransitionTexture(
 			}
 
 			// Update local state
-			localState.layout = layoutAfter;
+			localState.layout = layout;
 			localState.lastAccess = accessAfter;
 			localState.lastSync = syncAfter;
 		} else {
 			// First time seeing this resource in this command list.
 			// We don't know its LayoutBefore — defer to submit-time resolution.
-			PendingTextureBarrier pending = {};
-			pending.resource = resource;
-			pending.subresource = subresource;
-			pending.syncBefore = D3D12_BARRIER_SYNC_NONE;
-			pending.syncAfter = syncAfter;
-			pending.accessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
-			pending.accessAfter = accessAfter;
-			pending.layoutAfter = layoutAfter;
-			pending.discard = discard;
+			D3D12_TEXTURE_BARRIER pending = {};
+			pending.SyncBefore = D3D12_BARRIER_SYNC_NONE;
+			pending.SyncAfter = syncAfter;
+			pending.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
+			pending.AccessAfter = accessAfter;
+			pending.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+			pending.LayoutAfter = layout;
+			pending.pResource = resource;
+			pending.Subresources.IndexOrFirstMipLevel = subresource;
+			pending.Subresources.NumMipLevels = 0; // Indicates IndexOrFirstMipLevel is a subresource index
+			pending.Flags = flags;
 			m_pendingTextureBarriers.push_back(pending);
 
 			// Track the resource locally going forward
-			m_localTextureStates[key] = { layoutAfter, accessAfter, syncAfter };
+			m_localTextureStates[key] = { layout, accessAfter, syncAfter };
 		}
 	}
 }
@@ -291,13 +333,14 @@ void ResourceStateTracker::UAVTextureBarrier(ID3D12Resource* resource, u32 first
 		ASSERT_MSG(it->second.lastAccess & D3D12_BARRIER_ACCESS_UNORDERED_ACCESS, "Invalid access state");
 	}
 
+	D3D12_BARRIER_LAYOUT layout = GetQueueTypeSpecificBarrierLayout(m_type, D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS);
 	D3D12_TEXTURE_BARRIER barrier = {};
 	barrier.SyncBefore = D3D12_BARRIER_SYNC_ALL_SHADING;
 	barrier.SyncAfter = D3D12_BARRIER_SYNC_ALL_SHADING;
 	barrier.AccessBefore = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
 	barrier.AccessAfter = D3D12_BARRIER_ACCESS_UNORDERED_ACCESS;
-	barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
-	barrier.LayoutAfter = D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS;
+	barrier.LayoutBefore = layout;
+	barrier.LayoutAfter = layout;
 	barrier.pResource = resource;
 	barrier.Subresources = CD3DX12_BARRIER_SUBRESOURCE_RANGE(firstSubresource, numSubresources, 0, 1);
 	barrier.Flags = D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -316,25 +359,10 @@ void ResourceStateTracker::FlushImmediateBarriers(CommandList* commandList) {
 	}
 #endif
 
-	std::vector<D3D12_BARRIER_GROUP> groups;
-
-	if (!m_immediateTextureBarriers.empty()) {
-		D3D12_BARRIER_GROUP texGroup = {};
-		texGroup.Type = D3D12_BARRIER_TYPE_TEXTURE;
-		texGroup.NumBarriers = (u32)m_immediateTextureBarriers.size();
-		texGroup.pTextureBarriers = m_immediateTextureBarriers.data();
-		groups.push_back(texGroup);
-	}
-
-	if (!m_immediateBufferBarriers.empty()) {
-		D3D12_BARRIER_GROUP bufGroup = {};
-		bufGroup.Type = D3D12_BARRIER_TYPE_BUFFER;
-		bufGroup.NumBarriers = (u32)m_immediateBufferBarriers.size();
-		bufGroup.pBufferBarriers = m_immediateBufferBarriers.data();
-		groups.push_back(bufGroup);
-	}
-
-	commandList->d3dCommandList->Barrier((u32)groups.size(), groups.data());
+	PlaceGroupedBarriers(
+		commandList->d3dCommandList,
+		m_immediateTextureBarriers,
+		m_immediateBufferBarriers);
 
 	// Clear immediate barriers after they've been flushed to the command list
 	m_immediateTextureBarriers.clear();
@@ -378,28 +406,18 @@ void GlobalLayoutTracker::Init(Context* context) {
 }
 
 void GlobalLayoutTracker::Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout) {
+	u32 subresourceCount = GetSubresourceCount(resource);
 	std::unique_lock lock(m_mutex);
-
-	// Find the subresource count
-	D3D12_RESOURCE_DESC desc = resource->GetDesc();
-	u32 arraySize = desc.Dimension == D3D12_RESOURCE_DIMENSION_TEXTURE3D ? 1u : desc.DepthOrArraySize;
-	u32 subresourceCount = desc.MipLevels * arraySize;
-	m_subresourceCounts[resource] = subresourceCount;
-
-	for (u32 i = 0; i < subresourceCount; ++i) {
-		m_layouts[{resource, i}] = initialLayout;
+	for (u32 subresource = 0; subresource < subresourceCount; ++subresource) {
+		m_layouts[{resource, subresource}] = initialLayout;
 	}
 }
 
 void GlobalLayoutTracker::Unregister(ID3D12Resource* resource) {
+	u32 subresourceCount = GetSubresourceCount(resource);
 	std::unique_lock lock(m_mutex);
-	auto it = m_subresourceCounts.find(resource);
-	if (it != m_subresourceCounts.end()) {
-		u32 count = it->second;
-		for (u32 i = 0; i < count; ++i) {
-			m_layouts.erase({resource, i});
-		}
-		m_subresourceCounts.erase(it);
+	for (u32 subresource = 0; subresource < subresourceCount; ++subresource) {
+		m_layouts.erase({ resource, subresource });
 	}
 }
 
@@ -410,45 +428,32 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 	{
 		std::shared_lock lock(m_mutex);
 		for (ResourceStateTracker* tracker : trackers) {
-			for (const PendingTextureBarrier& pending : tracker->GetPendingTextureBarriers()) {
+			for (D3D12_TEXTURE_BARRIER& barrier : tracker->m_pendingTextureBarriers) {
 
 				// Resolve the before state of the layout
-				D3D12_BARRIER_LAYOUT layoutBefore;
-				if (pending.discard) {
-					layoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
+				if (barrier.Flags == D3D12_TEXTURE_BARRIER_FLAG_DISCARD) {
+					barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
 				}
 				else {
 					// Find any registered layouts
-					auto it = m_layouts.find({
-						pending.resource,
-						pending.subresource == SUBRESOURCE_ALL ? 0 : pending.subresource
-						});
+					SubresourceKey key = { barrier.pResource, barrier.Subresources.IndexOrFirstMipLevel };
+					auto it = m_layouts.find(key);
 					if (it != m_layouts.end()) {
-						layoutBefore = it->second;
+						barrier.LayoutBefore = it->second;
 					}
 					else {
-						// Unregistered resource — assume common layout
-						layoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
+						// Unregistered resource - assume queue-type-specific common layout
+						barrier.LayoutBefore = GetQueueTypeSpecificBarrierLayout(
+							tracker->m_type, D3D12_BARRIER_LAYOUT_COMMON);
 					}
 				}
 
 				// Early exit: same layout or first access in ECL (no flush needed)
 				// If the discard flag is true, continue anyway.
-				if (layoutBefore == pending.layoutAfter && !pending.discard) {
+				if (barrier.LayoutBefore == barrier.LayoutAfter &&
+					barrier.Flags != D3D12_TEXTURE_BARRIER_FLAG_DISCARD) {
 					continue;
 				}
-
-				D3D12_TEXTURE_BARRIER barrier = {};
-				barrier.SyncBefore = pending.syncBefore;
-				barrier.SyncAfter = pending.syncAfter;
-				barrier.AccessBefore = pending.accessBefore;
-				barrier.AccessAfter = pending.accessAfter;
-				barrier.LayoutBefore = layoutBefore;
-				barrier.LayoutAfter = pending.layoutAfter;
-				barrier.pResource = pending.resource;
-				barrier.Subresources.IndexOrFirstMipLevel = pending.subresource;
-				barrier.Subresources.NumMipLevels = 0;
-				barrier.Flags = pending.discard ? D3D12_TEXTURE_BARRIER_FLAG_DISCARD : D3D12_TEXTURE_BARRIER_FLAG_NONE;
 
 				resolvedTextureBarriers.push_back(barrier);
 			}
@@ -464,25 +469,11 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 	ThrowIfFailed(m_pendingAllocator->Reset());
 	ThrowIfFailed(m_pendingCommandList->Reset(m_pendingAllocator.Get(), nullptr));
 
-	std::vector<D3D12_BARRIER_GROUP> groups;
+	PlaceGroupedBarriers(
+		m_pendingCommandList,
+		resolvedTextureBarriers,
+		resolvedBufferBarriers);
 
-	if (!resolvedTextureBarriers.empty()) {
-		D3D12_BARRIER_GROUP texGroup = {};
-		texGroup.Type = D3D12_BARRIER_TYPE_TEXTURE;
-		texGroup.NumBarriers = (u32)resolvedTextureBarriers.size();
-		texGroup.pTextureBarriers = resolvedTextureBarriers.data();
-		groups.push_back(texGroup);
-	}
-
-	if (!resolvedBufferBarriers.empty()) {
-		D3D12_BARRIER_GROUP bufGroup = {};
-		bufGroup.Type = D3D12_BARRIER_TYPE_BUFFER;
-		bufGroup.NumBarriers = (u32)resolvedBufferBarriers.size();
-		bufGroup.pBufferBarriers = resolvedBufferBarriers.data();
-		groups.push_back(bufGroup);
-	}
-
-	m_pendingCommandList->Barrier((u32)groups.size(), groups.data());
 	ThrowIfFailed(m_pendingCommandList->Close());
 
 	return m_pendingCommandList.Get();
@@ -492,7 +483,7 @@ void GlobalLayoutTracker::CommitFinalLayoutStates(std::vector<ResourceStateTrack
 	std::unique_lock lock(m_mutex);
 	for (ResourceStateTracker* tracker : trackers) {
 		// For each tracker, store the final layout states
-		for (const auto& [key, state] : tracker->GetFinalTextureStates()) {
+		for (const auto& [key, state] : tracker->m_localTextureStates) {
 			m_layouts[{key.resource, key.subresource}] = state.layout;
 		}
 	}

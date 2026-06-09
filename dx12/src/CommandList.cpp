@@ -277,16 +277,14 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 	D3D12_RESOURCE_DESC1 textureDesc = {};
 	switch (metadata.dimension) {
 	case DirectX::TEX_DIMENSION_TEXTURE1D:
-		textureDesc = CD3DX12_RESOURCE_DESC1::Tex1D(metadata.format, metadata.width, static_cast<UINT16>(metadata.arraySize));
+		textureDesc = CD3DX12_RESOURCE_DESC1::Tex1D(metadata.format, metadata.width, UINT16(metadata.arraySize));
 		break;
 	case DirectX::TEX_DIMENSION_TEXTURE2D:
-		textureDesc = CD3DX12_RESOURCE_DESC1::Tex2D(metadata.format, metadata.width, static_cast<UINT>(metadata.height), static_cast<UINT16>(metadata.arraySize));
+		textureDesc = CD3DX12_RESOURCE_DESC1::Tex2D(metadata.format, metadata.width, UINT(metadata.height), UINT16(metadata.arraySize));
 		textureDesc.Flags |= D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
 		break;
 	case DirectX::TEX_DIMENSION_TEXTURE3D:
-		textureDesc = CD3DX12_RESOURCE_DESC1::Tex3D(metadata.format, metadata.width,
-			static_cast<UINT>(metadata.height),
-			static_cast<UINT16>(metadata.depth));
+		textureDesc = CD3DX12_RESOURCE_DESC1::Tex3D(metadata.format, metadata.width, UINT(metadata.height), UINT16(metadata.depth));
 		break;
 	default:
 		LogError("CommandList::LoadImageFromFile: Unsupported Texture Dimension in image \"{}\"", filePath.string());
@@ -297,14 +295,13 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 	Ref<Texture> texture = context->CreateTexture(
 		textureDesc, 
 		D3D12_HEAP_TYPE_DEFAULT, 
-		D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST,
+		D3D12_BARRIER_LAYOUT_COMMON,
 		filePath.c_str());
-	ComPtr<ID3D12Resource> texResource = texture->d3d12Resource;
 
 	TextureBarrier(texture, SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_COPY,
 		D3D12_BARRIER_ACCESS_COPY_DEST,
-		D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST);
+		D3D12_BARRIER_LAYOUT_COMMON);
 
 	std::vector<D3D12_SUBRESOURCE_DATA> subresources(scratchImage.GetImageCount());
 	const DirectX::Image* pImages = scratchImage.GetImages();
@@ -315,14 +312,9 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 		subresource.pData = pImages[i].pixels;
 	}
 
-	CopyTextureSubresource(texture, 0, static_cast<uint32_t>(subresources.size()), subresources.data());
+	CopyTextureSubresource(texture, 0, (u32)subresources.size(), subresources.data());
 
-	TextureBarrier(texture, SUBRESOURCE_ALL,
-		D3D12_BARRIER_SYNC_PIXEL_SHADING,
-		D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-		D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-
-	if (generateMips && subresources.size() < texResource->GetDesc().MipLevels) {
+	if (generateMips && subresources.size() < texture->GetD3D12ResourceDesc().MipLevels) {
 		if (!GenerateMipmaps(texture)) {
 			LogError("CommandList::LoadImageFromFile: Unable to generate mipmaps from image \"{}\"", filePath.string());
 		}
@@ -333,9 +325,9 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 
 bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 
-	const auto texResource = texture->GetD3D12Resource().Get();
-	const auto resourceDesc = texture->GetD3D12ResourceDesc();
 	const auto d3d12Device = context->GetDevice().d3d12Device10;
+	const auto d3d12Resource = texture->GetD3D12Resource().Get();
+	const auto resourceDesc = texture->GetD3D12ResourceDesc();
 
 	// First check if mipmapping is supported on this texture.
 	if (resourceDesc.Dimension != D3D12_RESOURCE_DIMENSION_TEXTURE2D ||
@@ -375,12 +367,15 @@ bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 	srvDesc.Shader4ComponentMapping = D3D12_DEFAULT_SHADER_4_COMPONENT_MAPPING;
 	srvDesc.ViewDimension = D3D12_SRV_DIMENSION_TEXTURE2D;
 	srvDesc.Texture2D.MipLevels = resourceDesc.MipLevels;
-	d3d12Device->CreateShaderResourceView(texResource, &srvDesc, cpuHeapStart);
+	d3d12Device->CreateShaderResourceView(d3d12Resource, &srvDesc, cpuHeapStart);
 
 	ID3D12DescriptorHeap* ppHeap[] = { descriptorHeap.Get()};
 	d3dCommandList->SetDescriptorHeaps(1, ppHeap);
 
-	for (u32 srcMip = 0; srcMip < resourceDesc.MipLevels - 1u;) {
+	// How many mipmap levels to compute this pass (max 4 mips per pass)
+	DWORD mipCount;
+
+	for (u32 srcMip = 0; srcMip < resourceDesc.MipLevels - 1u; srcMip += mipCount) {
 		u64 srcWidth = resourceDesc.Width >> srcMip;
 		u32 srcHeight = resourceDesc.Height >> srcMip;
 		u32 dstWidth = static_cast<u32>(srcWidth >> 1);
@@ -391,9 +386,6 @@ bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 		// 0b10(2): Width is even, height is odd.
 		// 0b11(3): Both width and height are odd.
 		genMipsBuffer.SrcDimension = static_cast<u64>(1 & srcHeight) << 1 | (srcWidth & 1);
-
-		// How many mipmap levels to compute this pass (max 4 mips per pass)
-		DWORD mipCount;
 
 		// The number of times we can half the size of the texture and get
 		// exactly a 50% reduction in size.
@@ -419,15 +411,16 @@ bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 
 		SetCompute32BitConstants(MipmappingPSO::GenerateMips_CB, genMipsBuffer);
 		
-		// TransitionBarrier(texture, D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE, false, srcMip);
-		resourceStateTracker.TransitionTexture(
-			texResource, srcMip,
+		// Bind the source mip SRV
+		TextureBarrier(
+			texture, srcMip,
 			D3D12_BARRIER_SYNC_NON_PIXEL_SHADING,
 			D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
-			D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-
+			D3D12_BARRIER_LAYOUT_SHADER_RESOURCE,
+			false);
 		d3dCommandList->SetComputeRootDescriptorTable(MipmappingPSO::SrcMip_SRV, gpuHeapStart);
 
+		// Create destination mip UAVs
 		for (u32 mip = 0; mip < 4; ++mip) {
 			u32 mipIndex = srcMip + mip + 1;
 			D3D12_UNORDERED_ACCESS_VIEW_DESC uavDesc = {};
@@ -437,12 +430,13 @@ bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 				uavDesc.ViewDimension = D3D12_UAV_DIMENSION_TEXTURE2D;
 				uavDesc.Texture2D.MipSlice = mipIndex;
 
-				//TransitionBarrier(texture, D3D12_RESOURCE_STATE_UNORDERED_ACCESS, false, mipIndex);
-				resourceStateTracker.TransitionTexture(
-					texResource, mipIndex,
+				// Transition the dest mips to unordered access 
+				TextureBarrier(
+					texture, mipIndex,
 					D3D12_BARRIER_SYNC_ALL_SHADING,
 					D3D12_BARRIER_ACCESS_UNORDERED_ACCESS,
-					D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS);
+					D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS,
+					false);
 
 			} else {
 				// Create null descriptors to pad unused UAVs in the shader.
@@ -451,25 +445,27 @@ bool CommandList::GenerateMipmaps(const Ref<Texture>& texture) {
 				uavDesc.Texture2D.MipSlice = 0;
 				uavDesc.Texture2D.PlaneSlice = 0;
 			}
-			d3d12Device->CreateUnorderedAccessView(texResource, nullptr, &uavDesc, CPUHandle(cpuHeapStart, mipIndex, heapIncrSize));
+			d3d12Device->CreateUnorderedAccessView(d3d12Resource, nullptr, &uavDesc, 
+				CD3DX12_CPU_DESCRIPTOR_HANDLE(cpuHeapStart, mipIndex, heapIncrSize));
 		}
-		d3dCommandList->SetComputeRootDescriptorTable(MipmappingPSO::OutMips_UAV, GPUHandle(gpuHeapStart, srcMip + 1, heapIncrSize));
 
+		// Bind the first destination mip UAV
+		d3dCommandList->SetComputeRootDescriptorTable(MipmappingPSO::OutMips_UAV, 
+			CD3DX12_GPU_DESCRIPTOR_HANDLE(gpuHeapStart, srcMip + 1, heapIncrSize));
+
+		// Dispatch compute job 
 		Dispatch(DivideByMultiple(dstWidth, 8), DivideByMultiple(dstHeight, 8));
 		
-		// UAV Barrier
-		resourceStateTracker.UAVTextureBarrier(texResource, srcMip + 1, mipCount);
-
-		srcMip += mipCount;
+		// UAV barrier
+		resourceStateTracker.UAVTextureBarrier(d3d12Resource, srcMip + 1, mipCount);
 	}
 
 	// Reset to shader resource state
-	resourceStateTracker.TransitionTexture(
-		texResource, SUBRESOURCE_ALL,
+	TextureBarrier(
+		texture, SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_PIXEL_SHADING,
 		D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
 		D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
-	resourceStateTracker.FlushImmediateBarriers(this);
 
 	return true;
 }
@@ -483,6 +479,7 @@ void CommandList::TextureBarrier(
 	D3D12_BARRIER_SYNC syncAfter,
 	D3D12_BARRIER_ACCESS accessAfter,
 	D3D12_BARRIER_LAYOUT layoutAfter,
+	bool flush,
 	bool discard
 ) {
 	resourceStateTracker.TransitionTexture(
@@ -493,20 +490,23 @@ void CommandList::TextureBarrier(
 		layoutAfter,
 		discard
 	);
-	resourceStateTracker.FlushImmediateBarriers(this);
+	if (flush)
+		resourceStateTracker.FlushImmediateBarriers(this);
 }
 
 void CommandList::BufferBarrier(
 	const Ref<Resource>& resource,
 	D3D12_BARRIER_SYNC syncAfter,
-	D3D12_BARRIER_ACCESS accessAfter
+	D3D12_BARRIER_ACCESS accessAfter,
+	bool flush
 ) {
 	resourceStateTracker.TransitionBuffer(
 		resource->d3d12Resource.Get(),
 		syncAfter,
 		accessAfter
 	);
-	resourceStateTracker.FlushImmediateBarriers(this);
+	if (flush)
+		resourceStateTracker.FlushImmediateBarriers(this);
 }
 
 void CommandList::SetDescriptorHeap(D3D12_DESCRIPTOR_HEAP_TYPE heapType, ID3D12DescriptorHeap* heap) {
@@ -538,6 +538,10 @@ void CommandList::SetCompute32BitConstants(u32 rootParam, u32 numConstants, cons
 
 void CommandList::SetShaderResourceView(i32 rootParameterIndex, u32 descriptorOffset, const Ref<Texture>& texture) {
 	if (texture) {
+		TextureBarrier(texture, SUBRESOURCE_ALL,
+			D3D12_BARRIER_SYNC_PIXEL_SHADING,
+			D3D12_BARRIER_ACCESS_SHADER_RESOURCE,
+			D3D12_BARRIER_LAYOUT_SHADER_RESOURCE);
 		m_DynamicDescriptorHeap[D3D12_DESCRIPTOR_HEAP_TYPE_CBV_SRV_UAV]->StageDescriptors(
 			rootParameterIndex, descriptorOffset, 1, texture->GetShaderResourceView());
 	}

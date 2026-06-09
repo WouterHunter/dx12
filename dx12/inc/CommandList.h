@@ -58,13 +58,15 @@ struct CommandList {
 		D3D12_BARRIER_SYNC syncAfter,
 		D3D12_BARRIER_ACCESS accessAfter,
 		D3D12_BARRIER_LAYOUT layoutAfter,
+		bool flush = true,
 		bool discard = false
 	);
 
 	void BufferBarrier(
 		const Ref<Resource>& resource,
 		D3D12_BARRIER_SYNC syncAfter,
-		D3D12_BARRIER_ACCESS accessAfter
+		D3D12_BARRIER_ACCESS accessAfter,
+		bool flush = true
 	);
 
 

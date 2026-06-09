@@ -30,6 +30,7 @@ using Microsoft::WRL::ComPtr;
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
 #include <queue>
 #include <set>
@@ -41,6 +42,7 @@ using Microsoft::WRL::ComPtr;
 #include <unordered_map>
 
 namespace fs = std::filesystem;
+namespace pmr = std::pmr;
 using std::chrono::nanoseconds;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;

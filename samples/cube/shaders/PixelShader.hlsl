@@ -10,7 +10,6 @@ struct PixelShaderInput
 
 float4 main(PixelShaderInput IN) : SV_Target
 {
-    float2 uv = float2(IN.texCoords.x, 1.0 - IN.texCoords.y);
-    float4 baseColor = BaseTexture.Sample(Sampler, uv);
+    float4 baseColor = BaseTexture.Sample(Sampler, IN.texCoords);
     return baseColor;
 }
