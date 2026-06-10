@@ -26,7 +26,6 @@ using Microsoft::WRL::ComPtr;
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <format>
 #include <functional>
 #include <iostream>
 #include <memory>
@@ -108,5 +107,3 @@ constexpr u32 CREATE_FACTORY_FLAGS = DXGI_CREATE_FACTORY_DEBUG;
 #else
 constexpr u32 CREATE_FACTORY_FLAGS = 0;
 #endif
-
-#include "Logging.h"

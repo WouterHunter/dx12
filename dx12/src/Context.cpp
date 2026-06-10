@@ -77,6 +77,13 @@ namespace {
 			SetConsoleScreenBufferSize(lStdHandle, consoleInfo.dwSize);
 			SetConsoleCursorPosition(lStdHandle, { 0, 0 });
 
+			// Enable virtual terminal processing to use ANSI escape codes
+			DWORD mode = 0;
+			if (GetConsoleMode(lStdHandle, &mode)) {
+				mode |= ENABLE_VIRTUAL_TERMINAL_PROCESSING;
+				SetConsoleMode(lStdHandle, mode);
+			}
+
 			// Redirect unbuffered STDOUT to the console.
 			int   hConHandle = _open_osfhandle((intptr_t)lStdHandle, _O_TEXT);
 			FILE* fp = _fdopen(hConHandle, "w");

@@ -3,6 +3,8 @@
 #include "Context.h"
 #include "CommandList.h"
 
+#define PRINT_IMMEDIATE_BARRIERS 0
+
 namespace {
 	const wchar_t* str(D3D12_BARRIER_LAYOUT layout) {
 		switch (layout) {
@@ -107,11 +109,10 @@ namespace {
 		UINT size = sizeof(name);
 		barrier.pResource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, name);
 
-		fmt::print(LR"(
-		Resource: {}
-		Sync Before: {} | Sync After: {}
-		Access Before: {} | Access After: {}
-			)",
+		LogInfo(
+			L"\t\tResource: {}\n"
+			L"\t\tSync Before: {} | Sync After: {}\n"
+			L"\t\tAccess Before: {} | Access After: {}\n",
 			name,
 			str(barrier.SyncBefore),
 			str(barrier.SyncAfter),
@@ -125,13 +126,12 @@ namespace {
 		barrier.pResource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, name);
 		std::wstring subresource = barrier.Subresources.IndexOrFirstMipLevel == D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES ?
 			L"ALL_SUBRESOURCES" : std::to_wstring(barrier.Subresources.IndexOrFirstMipLevel);
-
-		fmt::print(LR"(
-		Resource: {} | Subresource: {}
-		Sync Before: {} | Sync After: {}
-		Access Before: {} | Access After: {}
-		Layout Before: {} | Layout After: {}		
-			)",
+		
+		LogInfo(
+			L"\t\tResource: {} | Subresource: {}\n"
+			L"\t\tSync Before: {} | Sync After: {}\n"
+			L"\t\tAccess Before: {} | Access After: {}\n"
+			L"\t\tLayout Before: {} | Layout After: {}\n",
 			name, subresource,
 			str(barrier.SyncBefore),
 			str(barrier.SyncAfter),
@@ -352,8 +352,13 @@ void ResourceStateTracker::FlushImmediateBarriers(CommandList* commandList) {
 	if (m_immediateTextureBarriers.empty() && m_immediateBufferBarriers.empty())
 		return;
 
-#ifdef PRINT_IMMEDIATE_BARRIERS
-	fmt::print("ResourceStateTracker::FlushImmediateBarriers\n");
+#if PRINT_IMMEDIATE_BARRIERS
+	LogInfo("ResourceStateTracker::FlushImmediateBarriers");
+	LogInfo("\tBuffers:");
+	for (const auto& barrier : m_immediateBufferBarriers) {
+		PrintBufferBarrier(barrier);
+	}
+	LogInfo("\n\tTextures:");
 	for (const auto& barrier : m_immediateTextureBarriers) {
 		PrintTextureBarrier(barrier);
 	}
