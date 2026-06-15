@@ -1,6 +1,6 @@
 #pragma once
 
-struct Context;
+class Context;
 
 struct RootSignature {
     RootSignature(Context* context, const D3D12_ROOT_SIGNATURE_DESC1& desc, bool isCompute = false);

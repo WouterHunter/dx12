@@ -2,7 +2,7 @@
 #include "Resource.h"
 #include "DescriptorAllocation.h"
 
-struct Context;
+class Context;
 
 class Texture : public Resource
 {
@@ -11,7 +11,7 @@ public:
         const D3D12_CLEAR_VALUE* clearValue = nullptr,
         const wchar_t* name = nullptr);
 
-    void Resize(u32 width, u32 height, u32 depthOrArraySize = 1);
+    void Resize(ivec2 size, u32 depthOrArraySize = 1);
 
     CPUHandle GetRenderTargetView() const;
     CPUHandle GetDepthStencilView() const;

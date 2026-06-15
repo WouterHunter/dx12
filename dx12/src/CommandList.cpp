@@ -2,6 +2,7 @@
 #include "CommandList.h"
 #include "Context.h"
 #include "PipelineState.h"
+#include "RenderTarget.h"
 
 CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name) {
 	CommandList* commandList = new CommandList;
@@ -9,7 +10,6 @@ CommandList* CommandList::Create(Context* context, D3D12_COMMAND_LIST_TYPE type,
 	commandList->type = type;
 
 	Device& device = context->GetDevice();
-	assert(device.supportEnhancedBarriers && "Enhanced Barriers required but not supported by this device.");
 
 	ThrowIfFailed(device.d3d12Device10->CreateCommandAllocator(type, IID_PPV_ARGS(&commandList->d3dCommandAllocator)));
 
@@ -55,21 +55,40 @@ void CommandList::Reset() {
 	m_PipelineState.Reset();
 }
 
-void CommandList::ClearRTV(const Ref<Resource>& resource, FLOAT* clearColor) {
-	TextureBarrier(resource, SUBRESOURCE_ALL,
-		D3D12_BARRIER_SYNC_RENDER_TARGET,
-		D3D12_BARRIER_ACCESS_RENDER_TARGET,
-		D3D12_BARRIER_LAYOUT_RENDER_TARGET);
-	d3dCommandList->ClearRenderTargetView(resource->cpuHandle, clearColor, 0, nullptr);
+void CommandList::ClearRenderTarget(const RenderTarget& renderTarget, const f32* clearColor) {
+	for (const Ref<Texture>& texture : renderTarget.GetAttachedTextures() | std::views::values) {
+		TextureBarrier(texture, SUBRESOURCE_ALL,
+			D3D12_BARRIER_SYNC_RENDER_TARGET,
+			D3D12_BARRIER_ACCESS_RENDER_TARGET,
+			D3D12_BARRIER_LAYOUT_RENDER_TARGET);
+		d3dCommandList->ClearRenderTargetView(texture->GetRenderTargetView(), clearColor, 0, nullptr);
+	}
 }
 
-void CommandList::ClearDSV(const Ref<Resource>& resource, FLOAT depth, u8 stencil) {
-	TextureBarrier(resource, SUBRESOURCE_ALL,
+void CommandList::ClearDepthStencil(const DepthStencil& depthStencil, f32 depth, u8 stencil) {
+	TextureBarrier(depthStencil.GetTexture(), SUBRESOURCE_ALL,
 		D3D12_BARRIER_SYNC_DEPTH_STENCIL,
 		D3D12_BARRIER_ACCESS_DEPTH_STENCIL_WRITE,
 		D3D12_BARRIER_LAYOUT_DEPTH_STENCIL_WRITE);
-	d3dCommandList->ClearDepthStencilView(resource->cpuHandle, D3D12_CLEAR_FLAG_DEPTH,
+	d3dCommandList->ClearDepthStencilView(depthStencil.GetDsv(), D3D12_CLEAR_FLAG_DEPTH,
 		depth, stencil, 0, nullptr);
+}
+
+void CommandList::SetRenderTarget(const RenderTarget* renderTarget, const DepthStencil* depthStencil) const {
+
+	std::vector<CPUHandle> rtvHandles;
+	for (const Ref<Texture>& texture : renderTarget->GetAttachedTextures() | std::views::values) {
+		rtvHandles.push_back(texture->GetRenderTargetView());
+	}
+
+	if (depthStencil) {
+		CPUHandle dsvHandle = depthStencil->GetDsv();
+		d3dCommandList->OMSetRenderTargets((UINT)rtvHandles.size(), rtvHandles.data(), false, &dsvHandle);
+	} else {
+		d3dCommandList->OMSetRenderTargets((UINT)rtvHandles.size(), rtvHandles.data(), false, nullptr);
+	}
+
+	// NOTE: we may need to track the texture resources here.
 }
 
 void CommandList::SetPSO(const Ref<PSO> pso) {
@@ -294,8 +313,9 @@ Ref<Texture> CommandList::LoadTextureFromFile(const fs::path& filePath, bool gen
 
 	Ref<Texture> texture = context->CreateTexture(
 		textureDesc, 
-		D3D12_HEAP_TYPE_DEFAULT, 
 		D3D12_BARRIER_LAYOUT_COMMON,
+		D3D12_HEAP_TYPE_DEFAULT, 
+		nullptr,
 		filePath.c_str());
 
 	TextureBarrier(texture, SUBRESOURCE_ALL,
@@ -480,16 +500,20 @@ void CommandList::TextureBarrier(
 	D3D12_BARRIER_ACCESS accessAfter,
 	D3D12_BARRIER_LAYOUT layoutAfter,
 	bool flush,
+	bool useQueueSpecificLayout,
 	bool discard
 ) {
+	if (useQueueSpecificLayout)
+		layoutAfter = GetQueueTypeSpecificBarrierLayout(type, layoutAfter);
+
 	resourceStateTracker.TransitionTexture(
 		resource->d3d12Resource.Get(),
 		subresource,
 		syncAfter,
 		accessAfter,
 		layoutAfter,
-		discard
-	);
+		discard);
+
 	if (flush)
 		resourceStateTracker.FlushImmediateBarriers(this);
 }

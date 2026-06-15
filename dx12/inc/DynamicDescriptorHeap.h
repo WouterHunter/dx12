@@ -35,8 +35,8 @@
   */
 
 
-struct Device;
-struct CommandList;
+class Device;
+class CommandList;
 struct RootSignature;
 
 class DynamicDescriptorHeap {

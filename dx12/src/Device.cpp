@@ -85,8 +85,33 @@ Device Device::Create(const Adapter& adapter) {
 		if (FAILED(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &featureData, sizeof(featureData)))) {
 			featureData.EnhancedBarriersSupported = FALSE;
 		}
-		device.supportEnhancedBarriers = featureData.EnhancedBarriersSupported;
+		ASSERT_MSG(featureData.EnhancedBarriersSupported, "Enhanced Barrier support is required!");
 	}
 
 	return device;
+}
+
+DXGI_SAMPLE_DESC Device::GetMultiSampleDesc(DXGI_FORMAT format, u32 numDesiredSamples, D3D12_MULTISAMPLE_QUALITY_LEVEL_FLAGS flags) {
+	DXGI_SAMPLE_DESC sampleDesc = { 1, 0 };
+	D3D12_FEATURE_DATA_MULTISAMPLE_QUALITY_LEVELS qualityLevels = {
+		.Format = format,
+		.SampleCount = 1,
+		.Flags = flags,
+		.NumQualityLevels = 0,
+	};
+
+	// Find the highest available multisample quality level	
+	while (
+		qualityLevels.SampleCount <= numDesiredSamples &&
+		SUCCEEDED(d3d12Device10->CheckFeatureSupport(
+			D3D12_FEATURE_MULTISAMPLE_QUALITY_LEVELS,
+			&qualityLevels, sizeof(qualityLevels))) &&
+		qualityLevels.NumQualityLevels > 0)
+	{
+		sampleDesc.Count = qualityLevels.SampleCount;
+		sampleDesc.Quality = qualityLevels.NumQualityLevels - 1;
+		qualityLevels.SampleCount *= 2;
+	}
+
+	return sampleDesc;
 }

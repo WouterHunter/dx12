@@ -5,22 +5,24 @@
 #include "Texture.h"
 
 class Resource;
+class RenderTarget;
+class DepthStencil;
 
 /** Command list */
-struct CommandList {
-
+class CommandList {
+public:
 	// Try to get an existing available command list.
 	// If none are available, a new one will be created.
-	static CommandList* Create(struct Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name = nullptr);
+	static CommandList* Create(class Context* context, D3D12_COMMAND_LIST_TYPE type, const wchar_t* name = nullptr);
 
 	void Close();
 	void Reset();
 
-	// Clear a render target view.
-	void ClearRTV(const Ref<Resource>& resource, FLOAT* clearColor);
+	void ClearRenderTarget(const RenderTarget& renderTarget, const f32* clearColor = DEFAULT_CLEAR_COLOR);
+	void ClearDepthStencil(const DepthStencil& depthStencil, f32 depth = DEFAULT_CLEAR_DEPTH, 
+		u8 stencil = DEFAULT_CLEAR_STENCIL);
 
-	// Clear the depth of a depth-stencil view.
-	void ClearDSV(const Ref<Resource>& resource, FLOAT depth = 1.0f, u8 stencil = 0);
+	void SetRenderTarget(const RenderTarget* renderTarget, const DepthStencil* depthStencil = nullptr) const;
 
 	void SetPSO(const Ref<PSO> pso);
 	void SetPipelineState(PipelineState& pipelineState);
@@ -59,6 +61,7 @@ struct CommandList {
 		D3D12_BARRIER_ACCESS accessAfter,
 		D3D12_BARRIER_LAYOUT layoutAfter,
 		bool flush = true,
+		bool useQueueSpecificLayout = true,
 		bool discard = false
 	);
 

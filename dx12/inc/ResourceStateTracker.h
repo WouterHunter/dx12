@@ -2,8 +2,8 @@
 
 constexpr u32 SUBRESOURCE_ALL = 0xFFFFFFFF;
 
-struct Context;
-struct CommandList;
+class Context;
+class CommandList;
 
 
 // SubresourceKey — identifies a resource + subresource for tracking

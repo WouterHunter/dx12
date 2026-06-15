@@ -11,27 +11,30 @@
 
 
 /** D3D12 library context */
-struct Context : NonCopyable 
+class Context : NonCopyable 
 {
+public:
 	static Context* Create(HINSTANCE hInst, int icon);
 	static void Destroy(Context* context);
-
-	struct Window* CreateWindow(const wchar_t* title, const CommandLineArgs& args);
-	void DestroyWindow(Window* window);
 
 	void FlushAllCommandQueues();
 	void Quit(int exitCode = 0);
 
 
-	Ref<Resource> CreateResource(D3D12_RESOURCE_DESC1 desc,
+	[[nodiscard]] Ref<Resource> CreateResource(
+		const D3D12_RESOURCE_DESC1& desc1,
 		D3D12_HEAP_TYPE heapType = D3D12_HEAP_TYPE_DEFAULT,
 		const wchar_t* name = nullptr);
-	Ref<Texture> CreateTexture(D3D12_RESOURCE_DESC1 desc,
+
+	[[nodiscard]] Ref<Texture> CreateTexture(
+		const D3D12_RESOURCE_DESC1& desc1,
+		D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_COMMON,
 		D3D12_HEAP_TYPE heapType = D3D12_HEAP_TYPE_DEFAULT,
-		D3D12_BARRIER_LAYOUT layout = D3D12_BARRIER_LAYOUT_UNDEFINED,
+		const D3D12_CLEAR_VALUE* clearValue = nullptr,
 		const wchar_t* name = nullptr);
 
 	Device& GetDevice() { return device; }
+	HINSTANCE GetInstanceHandle() { return hInstance; }
 	CommandQueue& CommandQueueDirect() { return commandQueueDirect; }
 	CommandQueue& CommandQueueCompute() { return commandQueueCompute; }
 	CommandQueue& CommandQueueCopy() { return commandQueueCopy; }

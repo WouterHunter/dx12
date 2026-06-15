@@ -1,6 +1,6 @@
 #pragma once
 
-struct Context;
+class Context;
 
 /** Resource */
 class Resource {
@@ -19,7 +19,6 @@ public:
 	void CheckFeatureSupport();
 
 	Context* m_Context;
-    D3D12_CPU_DESCRIPTOR_HANDLE cpuHandle;
 	ComPtr<ID3D12Resource> d3d12Resource;
 	D3D12_FEATURE_DATA_FORMAT_SUPPORT formatSupport{};
 };

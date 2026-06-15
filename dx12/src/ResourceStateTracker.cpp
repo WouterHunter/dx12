@@ -206,7 +206,6 @@ void ResourceStateTracker::TransitionTexture(
 				layoutAfter, discard);
 		}
 	} else {
-		D3D12_BARRIER_LAYOUT layout = GetQueueTypeSpecificBarrierLayout(m_type, layoutAfter);
 		D3D12_TEXTURE_BARRIER_FLAGS flags = discard ?
 			D3D12_TEXTURE_BARRIER_FLAG_DISCARD :
 			D3D12_TEXTURE_BARRIER_FLAG_NONE;
@@ -224,14 +223,14 @@ void ResourceStateTracker::TransitionTexture(
 			barrier.AccessBefore = localState.lastAccess;
 			barrier.AccessAfter = accessAfter;
 			barrier.LayoutBefore = localState.layout;
-			barrier.LayoutAfter = layout;
+			barrier.LayoutAfter = layoutAfter;
 			barrier.pResource = resource;
 			barrier.Subresources.IndexOrFirstMipLevel = subresource;
 			barrier.Subresources.NumMipLevels = 0; // Indicates IndexOrFirstMipLevel is a subresource index
 			barrier.Flags = flags;
 
 			// Skip no-op barriers (same layout, no cache flush needed)
-			bool layoutChange = localState.layout != layout;
+			bool layoutChange = localState.layout != layoutAfter;
 			bool accessFlush = (localState.lastAccess != D3D12_BARRIER_ACCESS_NO_ACCESS) &&
 				(localState.lastAccess != accessAfter || layoutChange);
 
@@ -240,7 +239,7 @@ void ResourceStateTracker::TransitionTexture(
 			}
 
 			// Update local state
-			localState.layout = layout;
+			localState.layout = layoutAfter;
 			localState.lastAccess = accessAfter;
 			localState.lastSync = syncAfter;
 		} else {
@@ -252,7 +251,7 @@ void ResourceStateTracker::TransitionTexture(
 			pending.AccessBefore = D3D12_BARRIER_ACCESS_NO_ACCESS;
 			pending.AccessAfter = accessAfter;
 			pending.LayoutBefore = D3D12_BARRIER_LAYOUT_UNDEFINED;
-			pending.LayoutAfter = layout;
+			pending.LayoutAfter = layoutAfter;
 			pending.pResource = resource;
 			pending.Subresources.IndexOrFirstMipLevel = subresource;
 			pending.Subresources.NumMipLevels = 0; // Indicates IndexOrFirstMipLevel is a subresource index
@@ -260,7 +259,7 @@ void ResourceStateTracker::TransitionTexture(
 			m_pendingTextureBarriers.push_back(pending);
 
 			// Track the resource locally going forward
-			m_localTextureStates[key] = { layout, accessAfter, syncAfter };
+			m_localTextureStates[key] = { layoutAfter, accessAfter, syncAfter };
 		}
 	}
 }
@@ -447,9 +446,8 @@ ID3D12GraphicsCommandList7* GlobalLayoutTracker::ResolvePendingBarriers(std::vec
 						barrier.LayoutBefore = it->second;
 					}
 					else {
-						// Unregistered resource - assume queue-type-specific common layout
-						barrier.LayoutBefore = GetQueueTypeSpecificBarrierLayout(
-							tracker->m_type, D3D12_BARRIER_LAYOUT_COMMON);
+						// Unregistered resource - assume common layout
+						barrier.LayoutBefore = D3D12_BARRIER_LAYOUT_COMMON;
 					}
 				}
 

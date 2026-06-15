@@ -1,8 +1,8 @@
 #pragma once
 #include "RootSignature.h"
 
-struct Context;
-struct CommandList;
+class Context;
+class CommandList;
 
 struct PipelineState {
 

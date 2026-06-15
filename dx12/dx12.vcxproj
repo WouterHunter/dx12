@@ -16,6 +16,7 @@
     <ClCompile Include="src\DescriptorAllocator.cpp" />
     <ClCompile Include="src\DescriptorAllocatorPage.cpp" />
     <ClCompile Include="src\DynamicDescriptorHeap.cpp" />
+    <ClCompile Include="src\RenderTarget.cpp" />
     <ClCompile Include="src\ResourceStateTracker.cpp" />
     <ClCompile Include="src\PipelineState.cpp" />
     <ClCompile Include="src\RootSignature.cpp" />
@@ -40,6 +41,7 @@
     <ClInclude Include="inc\DescriptorAllocatorPage.h" />
     <ClInclude Include="inc\DynamicDescriptorHeap.h" />
     <ClInclude Include="inc\Logging.h" />
+    <ClInclude Include="inc\RenderTarget.h" />
     <ClInclude Include="inc\ResourceStateTracker.h" />
     <ClInclude Include="inc\Device.h" />
     <ClInclude Include="inc\Context.h" />

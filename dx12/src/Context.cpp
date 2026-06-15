@@ -5,8 +5,6 @@
 #include <fcntl.h> 
 #include <corecrt_io.h>
 
-constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12 Render Window";
-
 namespace {
 
 	std::string GetWin32ErrorMessage() {
@@ -118,72 +116,6 @@ namespace {
 			std::cin.clear();
 		}
 	}
-
-	bool CheckTearingSupport() {
-		BOOL allowTearing = false;
-		ComPtr<IDXGIFactory4> factory4;
-		if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory4)))) {
-			ComPtr<IDXGIFactory5> factory5;
-			if (SUCCEEDED(factory4.As(&factory5))) {
-				if (FAILED(factory5->CheckFeatureSupport(
-					DXGI_FEATURE_PRESENT_ALLOW_TEARING,
-					&allowTearing, sizeof(allowTearing)))) {
-					allowTearing = false;
-				}
-			}
-		}
-		return allowTearing;
-	}
-
-	void CreateWindowSwapChain(Window* window, bool vSync, bool fullscreen) {
-		SwapChain& swapChain = window->swapChain;
-		ComPtr<IDXGISwapChain1> swapChain1;
-		ComPtr<IDXGIFactory4> factory;
-
-		swapChain.allowTearing = CheckTearingSupport();
-		swapChain.vSync = vSync;
-		swapChain.fullscreen = fullscreen;
-
-		ThrowIfFailed(CreateDXGIFactory2(CREATE_FACTORY_FLAGS, IID_PPV_ARGS(&factory)));
-
-		DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {
-			.Width = (UINT)window->size.x,
-			.Height = (UINT)window->size.y,
-			.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
-			.Stereo = FALSE,
-			.SampleDesc = { 1, 0 },
-			.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
-			.BufferCount = SWAP_CHAIN_BUFFER_COUNT,
-			.Scaling = DXGI_SCALING_STRETCH,
-			.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
-			.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED,
-			.Flags = (swapChain.allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
-				DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
-		};
-
-		Context* context = window->context;
-		swapChain.context = context;
-		const CommandQueue& commandQueue = context->CommandQueueDirect();
-
-		ThrowIfFailed(factory->CreateSwapChainForHwnd(
-			commandQueue.d3dCommandQueue.Get(),
-			window->hWnd,
-			&swapChainDesc,
-			nullptr,
-			nullptr,
-			&swapChain1));
-
-		ThrowIfFailed(factory->MakeWindowAssociation(window->hWnd, DXGI_MWA_NO_ALT_ENTER));
-		ThrowIfFailed(swapChain1.As(&swapChain.dxgiSwapChain4));
-		ThrowIfFailed(swapChain.dxgiSwapChain4->SetMaximumFrameLatency(SWAP_CHAIN_BUFFER_COUNT - 1));
-
-		swapChain.frameLatencyWaitHandle = swapChain.dxgiSwapChain4->GetFrameLatencyWaitableObject();
-		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
-		swapChain.rtvVDescriptorHeap = CreateDescriptorHeap(context->GetDevice(), D3D12_DESCRIPTOR_HEAP_TYPE_RTV, SWAP_CHAIN_BUFFER_COUNT);
-		swapChain.rtvDescriptorSize = context->GetDevice().d3d12Device10->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-
-		swapChain.UpdateBackBuffers();
-	}
 }
 
 Context* Context::Create(HINSTANCE hInst, int icon) {
@@ -197,6 +129,10 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
 #ifdef _DEBUG
+	// Create debug console (only necessary while using WINDOWS subsystem).
+	CreateConsole();
+
+	// Enabled D3D12 debug layer.
 	ComPtr<ID3D12Debug> debugInterface;
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
 	debugInterface->EnableDebugLayer();
@@ -265,42 +201,6 @@ void Context::Destroy(Context* context) {
 	delete context;
 }
 
-Window* Context::CreateWindow(const wchar_t* title, const CommandLineArgs& args) {
-	Window* window = new Window{};
-	window->size = { args.width, args.height };
-	window->title = title;
-	window->showFPS = args.showFPS;
-	window->context = this;
-	window->rect = { 0, 0, (LONG)args.width, (LONG)args.height };
-	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
-
-	window->hWnd = CreateWindowExW(
-		NULL, WINDOW_CLASS_NAME, title, WS_OVERLAPPEDWINDOW,
-		CW_USEDEFAULT, CW_USEDEFAULT,
-		window->rect.right - window->rect.left,
-		window->rect.bottom - window->rect.top,
-		NULL, NULL, hInstance, nullptr);
-
-	if (!window->hWnd) {
-		MessageBoxA(NULL, "Could not create the render window.", "Error", MB_OK | MB_ICONERROR);
-		return {};
-	}
-
-	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
-	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
-
-	CreateConsole(); // Create debug console while using WINDOWS subsystem
-	CreateWindowSwapChain(window, args.vSync, false);
-
-	window->initialized = true;
-
-	return window;
-}
-
-void Context::DestroyWindow(Window* window) {
-	delete window;
-}
-
 // Make sure the command queue has finished all commands before closing.
 void Context::FlushAllCommandQueues() {
 	commandQueueDirect.Flush();
@@ -312,38 +212,41 @@ void Context::Quit(int exitCode) {
 	PostQuitMessage(exitCode);
 }
 
-Ref<Resource> Context::CreateResource(D3D12_RESOURCE_DESC1 desc, D3D12_HEAP_TYPE heapType, const wchar_t* name) {
-	
+Ref<Resource> Context::CreateResource(
+	const D3D12_RESOURCE_DESC1& desc1,
+	D3D12_HEAP_TYPE heapType, 
+	const wchar_t* name
+) {
 	ComPtr<ID3D12Resource> d3d12Resource;
-	CD3DX12_HEAP_PROPERTIES defaultProperties(heapType);
+	CD3DX12_HEAP_PROPERTIES heapProperties(heapType);
+
 	ThrowIfFailed(device.d3d12Device10->CreateCommittedResource3(
-		&defaultProperties, D3D12_HEAP_FLAG_NONE, &desc,
+		&heapProperties, D3D12_HEAP_FLAG_NONE, &desc1,
 		D3D12_BARRIER_LAYOUT_UNDEFINED, nullptr, nullptr, 0, nullptr,
 		IID_PPV_ARGS(&d3d12Resource)));
 
 	Ref<Resource> resource = MakeRef<Resource>(this, d3d12Resource, name);
-
-	// Check feature support
-	resource->formatSupport.Format = desc.Format;
-	ThrowIfFailed(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_FORMAT_SUPPORT,
-		&resource->formatSupport, sizeof(D3D12_FEATURE_DATA_FORMAT_SUPPORT)));
-
-
 	return resource;
 }
 
-Ref<Texture> Context::CreateTexture(D3D12_RESOURCE_DESC1 desc1, D3D12_HEAP_TYPE heapType, D3D12_BARRIER_LAYOUT layout, const wchar_t* name) {
+Ref<Texture> Context::CreateTexture(
+	const D3D12_RESOURCE_DESC1& desc1, 
+	D3D12_BARRIER_LAYOUT layout, 
+	D3D12_HEAP_TYPE heapType, 
+	const D3D12_CLEAR_VALUE* clearValue, 
+	const wchar_t* name
+) {
 	ComPtr<ID3D12Resource> d3d12Resource;
-	CD3DX12_HEAP_PROPERTIES defaultProperties(heapType);
+	CD3DX12_HEAP_PROPERTIES heapProperties(heapType);
+
 	ThrowIfFailed(device.d3d12Device10->CreateCommittedResource3(
-		&defaultProperties, D3D12_HEAP_FLAG_NONE,
-		&desc1, layout, nullptr, nullptr, 0, nullptr,
+		&heapProperties, D3D12_HEAP_FLAG_NONE,
+		&desc1, layout, clearValue, nullptr, 0, nullptr,
 		IID_PPV_ARGS(&d3d12Resource)));
 
 	globalLayoutTracker.Register(d3d12Resource.Get(), layout);
 
-	Ref<Texture> texture = MakeRef<Texture>(this, d3d12Resource, nullptr, name);
-
+	Ref<Texture> texture = MakeRef<Texture>(this, d3d12Resource, clearValue, name);
 	return texture;
 }
 
