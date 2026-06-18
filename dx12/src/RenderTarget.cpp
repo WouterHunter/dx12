@@ -25,7 +25,7 @@ RenderTarget RenderTarget::CreateDefaultMultiSampled(Context* context, ivec2 siz
 }
 
 void RenderTarget::AttachTexture(Attachment attachment, const Ref<Texture>& texture) {
-	ASSERT_MSG(texture, "RenderTarget attachment requires a valid texture.");
+	ASSERT(texture, "RenderTarget attachment requires a valid texture.");
 	m_attachedTextures[attachment] = texture;
 }
 
@@ -108,7 +108,7 @@ DepthStencil DepthStencil::CreateDefaultMultiSampled(Context* context, ivec2 siz
 }
 void DepthStencil::SetTexture(const Ref<
 	Texture>& texture) {
-	ASSERT_MSG(texture, "DepthStencil attachment requires a valid texture.");
+	ASSERT(texture, "DepthStencil attachment requires a valid texture.");
 	m_texture = texture;
 }
 

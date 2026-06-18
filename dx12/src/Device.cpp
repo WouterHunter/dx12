@@ -85,7 +85,7 @@ Device Device::Create(const Adapter& adapter) {
 		if (FAILED(device.d3d12Device10->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS12, &featureData, sizeof(featureData)))) {
 			featureData.EnhancedBarriersSupported = FALSE;
 		}
-		ASSERT_MSG(featureData.EnhancedBarriersSupported, "Enhanced Barrier support is required!");
+		ASSERT(featureData.EnhancedBarriersSupported, "Enhanced Barrier support is required!");
 	}
 
 	return device;

@@ -128,10 +128,10 @@ Context* Context::Create(HINSTANCE hInst, int icon) {
 	// be rendered in a DPI sensitive fashion.
 	SetThreadDpiAwarenessContext(DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2);
 
-#ifdef _DEBUG
 	// Create debug console (only necessary while using WINDOWS subsystem).
 	CreateConsole();
 
+#ifdef _DEBUG
 	// Enabled D3D12 debug layer.
 	ComPtr<ID3D12Debug> debugInterface;
 	ThrowIfFailed(D3D12GetDebugInterface(IID_PPV_ARGS(&debugInterface)));
