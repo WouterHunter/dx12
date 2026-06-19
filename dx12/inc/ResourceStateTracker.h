@@ -2,8 +2,8 @@
 
 constexpr u32 SUBRESOURCE_ALL = 0xFFFFFFFF;
 
-struct Context;
-struct CommandList;
+class Context;
+class CommandList;
 
 
 // SubresourceKey — identifies a resource + subresource for tracking
@@ -25,18 +25,6 @@ struct SubresourceKey {
 };
 
 
-// Recorded during command list building, resolved at submit time.
-struct PendingTextureBarrier {
-	ID3D12Resource* resource;
-	u32 subresource;
-	D3D12_BARRIER_SYNC syncBefore;
-	D3D12_BARRIER_SYNC syncAfter;
-	D3D12_BARRIER_ACCESS accessBefore;
-	D3D12_BARRIER_ACCESS accessAfter;
-	D3D12_BARRIER_LAYOUT layoutAfter;
-	bool discard; // D3D12_TEXTURE_BARRIER_FLAG_DISCARD
-};
-
 // Tracks the known state of a texture within a single command list recording.
 struct LocalTextureState {
 	D3D12_BARRIER_LAYOUT layout;
@@ -53,16 +41,14 @@ struct LocalBufferState {
 using TextureStateMap = std::unordered_map<SubresourceKey, LocalTextureState, SubresourceKey::Hash>;
 using BufferStateMap = std::unordered_map<SubresourceKey, LocalBufferState, SubresourceKey::Hash>;
 
-/**
-* Per-command-list object that records barrier intents during command list recording.
-* Not thread-safe (each command list has its own recorder, used from one thread).
-*/
+
+// Per-command-list object that records barrier intents during command list recording.
+// Not thread-safe (each command list has its own recorder, used from one thread).
 class ResourceStateTracker {
 public:
+	void Init(D3D12_COMMAND_LIST_TYPE commandListType);
 
-	// Record intent to use a texture in a specific state.
-	// If layout is already known, emits an immediate barrier.
-	// Otherwise, records a pending barrier to resolve at submit.
+	// Record a texture state transition.
 	void TransitionTexture(
 		ID3D12Resource* resource,
 		u32 subresource,
@@ -72,22 +58,24 @@ public:
 		bool discard = false
 	);
 
-	// Record a buffer access transition.
+	// Record a buffer state transition.
 	void TransitionBuffer(
 		ID3D12Resource* resource,
 		D3D12_BARRIER_SYNC syncAfter,
 		D3D12_BARRIER_ACCESS accessAfter
 	);
 
-	void UAVBarrier(ID3D12Resource* resource, bool isTexture);
+	void UAVBufferBarrier(ID3D12Resource* resource);
+	void UAVTextureBarrier(ID3D12Resource* resource, 
+		u32 firstSubresource, u32 numSubresources);
+
 	void FlushImmediateBarriers(CommandList* commandList);
-
-	const std::vector<PendingTextureBarrier>& GetPendingTextureBarriers() const { return m_pendingTextureBarriers; }
-	const TextureStateMap& GetFinalTextureStates() const { return m_localTextureStates; }
-
 	void Reset();
 
 private:
+	friend class GlobalLayoutTracker;
+
+	D3D12_COMMAND_LIST_TYPE m_type;
 
 	// Local states for resources touched in this command list
 	TextureStateMap m_localTextureStates;
@@ -98,18 +86,16 @@ private:
 	std::vector<D3D12_BUFFER_BARRIER> m_immediateBufferBarriers;
 
 	// Pending barriers whose LayoutBefore is unknown at record time
-	std::vector<PendingTextureBarrier> m_pendingTextureBarriers;
+	std::vector<D3D12_TEXTURE_BARRIER> m_pendingTextureBarriers;
 };
 
-/** 
-* Tracks the persistent layout of all registered texture subresources.
-* Thread-safe: concurrent reads during command list recording, exclusive writes at submit.
-*/
+// Tracks the persistent layout of all registered texture subresources.
 class GlobalLayoutTracker {
 public:
+
 	void Init(Context* context);
 
-	void Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout, u32 subresourceCount = 1);
+	void Register(ID3D12Resource* resource, D3D12_BARRIER_LAYOUT initialLayout);
 	void Unregister(ID3D12Resource* resource);
 
 	// Commit final texture layouts. This must be called when the command list submitted
@@ -121,7 +107,6 @@ public:
 private:
 	ComPtr<ID3D12CommandAllocator> m_pendingAllocator;
 	ComPtr<ID3D12GraphicsCommandList7> m_pendingCommandList;
-	mutable std::shared_mutex m_mutex;
+	std::shared_mutex m_mutex;
 	std::unordered_map<SubresourceKey, D3D12_BARRIER_LAYOUT, SubresourceKey::Hash> m_layouts;
-	std::unordered_map<ID3D12Resource*, u32> m_subresourceCounts;
 };

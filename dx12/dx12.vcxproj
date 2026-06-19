@@ -16,6 +16,7 @@
     <ClCompile Include="src\DescriptorAllocator.cpp" />
     <ClCompile Include="src\DescriptorAllocatorPage.cpp" />
     <ClCompile Include="src\DynamicDescriptorHeap.cpp" />
+    <ClCompile Include="src\RenderTarget.cpp" />
     <ClCompile Include="src\ResourceStateTracker.cpp" />
     <ClCompile Include="src\PipelineState.cpp" />
     <ClCompile Include="src\RootSignature.cpp" />
@@ -40,6 +41,7 @@
     <ClInclude Include="inc\DescriptorAllocatorPage.h" />
     <ClInclude Include="inc\DynamicDescriptorHeap.h" />
     <ClInclude Include="inc\Logging.h" />
+    <ClInclude Include="inc\RenderTarget.h" />
     <ClInclude Include="inc\ResourceStateTracker.h" />
     <ClInclude Include="inc\Device.h" />
     <ClInclude Include="inc\Context.h" />
@@ -56,6 +58,12 @@
     <ClInclude Include="inc\PipelineState.h" />
     <ClInclude Include="res\resource.h" />
     <ClInclude Include="inc\RootSignature.h" />
+  </ItemGroup>
+  <ItemGroup>
+    <FxCompile Include="shaders\GenerateMips.hlsl">
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">Compute</ShaderType>
+      <ShaderType Condition="'$(Configuration)|$(Platform)'=='Release|x64'">Compute</ShaderType>
+    </FxCompile>
   </ItemGroup>
   <PropertyGroup Label="Globals">
     <VCProjectVersion>17.0</VCProjectVersion>
@@ -110,12 +118,22 @@
       <PrecompiledHeaderFile>DX12PCH.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d12.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <FxCompile>
+      <VariableName>SHADER_BYTECODE_%(Filename)</VariableName>
+      <HeaderFileOutput>$(ProjectDir)inc\shaders\%(Filename).h</HeaderFileOutput>
+      <AdditionalIncludeDirectories>
+      </AdditionalIncludeDirectories>
+      <ShaderModel>6.0</ShaderModel>
+      <AdditionalOptions>-Qembed_debug %(AdditionalOptions)</AdditionalOptions>
+      <ObjectFileOutput />
+    </FxCompile>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
     <ClCompile>
@@ -131,12 +149,19 @@
       <PrecompiledHeaderFile>DX12PCH.h</PrecompiledHeaderFile>
       <MultiProcessorCompilation>true</MultiProcessorCompilation>
       <AdditionalOptions>/utf-8 %(AdditionalOptions)</AdditionalOptions>
+      <UseStandardPreprocessor>true</UseStandardPreprocessor>
     </ClCompile>
     <Link>
       <SubSystem>Windows</SubSystem>
       <GenerateDebugInformation>true</GenerateDebugInformation>
       <AdditionalDependencies>d3d12.lib;dxgi.lib;dxguid.lib;d3dcompiler.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Link>
+    <FxCompile>
+      <VariableName>SHADER_BYTECODE_%(Filename)</VariableName>
+      <HeaderFileOutput>$(ProjectDir)inc\shaders\%(Filename).h</HeaderFileOutput>
+      <ShaderModel>6.0</ShaderModel>
+      <ObjectFileOutput />
+    </FxCompile>
   </ItemDefinitionGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

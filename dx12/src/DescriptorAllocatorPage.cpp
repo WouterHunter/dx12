@@ -63,7 +63,8 @@ DescriptorAllocation DescriptorAllocatorPage::Allocate(u32 numDescriptors)
 
 	return {
 		CPUHandle(m_BaseDescriptor, static_cast<INT>(blockOffset), m_IncrementSize),
-		numDescriptors, 
+		numDescriptors,
+		m_IncrementSize,
 		m_HeapType,
 		shared_from_this()
 	};

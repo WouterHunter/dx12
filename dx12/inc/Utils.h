@@ -3,7 +3,8 @@
 struct CommandLineArgs {
     i32 width{ 1280 };
 	i32 height{ 720 };
-	b8 vSync{ false };
+	bool vSync{ false };
+	bool showFPS{ false };
 };
 
 inline CommandLineArgs ParseCommandLineArguments(LPWSTR cmdLine) {
@@ -12,12 +13,14 @@ inline CommandLineArgs ParseCommandLineArguments(LPWSTR cmdLine) {
 	wchar_t** argv = CommandLineToArgvW(cmdLine, &argc);
 
 	for (i32 i = 0; i < argc; ++i) {
-		if (::wcscmp(argv[i], L"-w") == 0 || ::wcscmp(argv[i], L"--width") == 0)
+		if (::wcscmp(argv[i], L"-w") == 0)
 			args.width = ::wcstol(argv[++i], nullptr, 10);
-		if (::wcscmp(argv[i], L"-h") == 0 || ::wcscmp(argv[i], L"--height") == 0)
+		if (::wcscmp(argv[i], L"-h") == 0)
 			args.height = ::wcstol(argv[++i], nullptr, 10);
-		if (::wcscmp(argv[i], L"-vsync") == 0 || ::wcscmp(argv[i], L"--vsync") == 0)
+		if (::wcscmp(argv[i], L"-vsync") == 0)
 			args.vSync = true;
+		if (::wcscmp(argv[i], L"-fps") == 0)
+			args.showFPS = true;
 	}
 
 	LocalFree((HLOCAL)argv); // Free memory allocated by CommandLineToArgvW
@@ -71,5 +74,69 @@ constexpr DXGI_FORMAT GetFormatFromType() {
 
 u32 GetFormatByteSize(DXGI_FORMAT format);
 
+constexpr D3D12_BARRIER_LAYOUT GetQueueTypeSpecificBarrierLayout(
+	D3D12_COMMAND_LIST_TYPE type,
+	D3D12_BARRIER_LAYOUT layout) {
+	switch (type) {
+	case D3D12_COMMAND_LIST_TYPE_DIRECT:
+		switch (layout) {
+		case D3D12_BARRIER_LAYOUT_COMMON:           return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COMMON;
+		case D3D12_BARRIER_LAYOUT_GENERIC_READ:     return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_GENERIC_READ;
+		case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS: return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_UNORDERED_ACCESS;
+		case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:  return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_SHADER_RESOURCE;
+		case D3D12_BARRIER_LAYOUT_COPY_SOURCE:      return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_SOURCE;
+		case D3D12_BARRIER_LAYOUT_COPY_DEST:        return D3D12_BARRIER_LAYOUT_DIRECT_QUEUE_COPY_DEST;
+		default:                                    return layout;
+		}
+	case D3D12_COMMAND_LIST_TYPE_COMPUTE:
+		switch (layout) {
+		case D3D12_BARRIER_LAYOUT_COMMON:           return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COMMON;
+		case D3D12_BARRIER_LAYOUT_GENERIC_READ:     return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_GENERIC_READ;
+		case D3D12_BARRIER_LAYOUT_UNORDERED_ACCESS: return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_UNORDERED_ACCESS;
+		case D3D12_BARRIER_LAYOUT_SHADER_RESOURCE:  return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_SHADER_RESOURCE;
+		case D3D12_BARRIER_LAYOUT_COPY_SOURCE:      return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_SOURCE;
+		case D3D12_BARRIER_LAYOUT_COPY_DEST:        return D3D12_BARRIER_LAYOUT_COMPUTE_QUEUE_COPY_DEST;
+		default:                                    return layout;
+		}
+	default: return layout;
+	}
+}
+
 std::string ToString(D3D12_RESOURCE_STATES state);
 std::string ToString(DXGI_FORMAT format);
+
+
+// Microsoft MiniEngine Math Utility Functions
+// Taken from: https://github.com/Microsoft/DirectX-Graphics-Samples/blob/master/MiniEngine/Core/Math/Common.h
+
+template <typename T> __forceinline T AlignUpWithMask(T value, size_t mask) {
+	return static_cast<T>(static_cast<size_t>(value) + mask & ~mask);
+}
+
+template <typename T> __forceinline T AlignDownWithMask(T value, size_t mask) {
+	return static_cast<T>(static_cast<size_t>(value) & ~mask);
+}
+
+template <typename T> __forceinline T AlignUp(T value, size_t alignment) {
+	return AlignUpWithMask(value, alignment - 1);
+}
+
+template <typename T> __forceinline T AlignDown(T value, size_t alignment) {
+	return AlignDownWithMask(value, alignment - 1);
+}
+
+template <typename T> __forceinline bool IsAligned(T value, size_t alignment) {
+	return 0 == (static_cast<size_t>(value) & (alignment - 1));
+}
+
+template <typename T> __forceinline T DivideByMultiple(T value, size_t alignment) {
+	return static_cast<T>((value + alignment - 1) / alignment);
+}
+
+template <typename T> __forceinline bool IsPowerOfTwo(T value) {
+	return 0 == (value & (value - 1));
+}
+
+template <typename T> __forceinline bool IsDivisible(T value, T divisor) {
+	return (value / divisor) * divisor == value;
+}

@@ -3,9 +3,11 @@
 #include "DescriptorAllocatorPage.h"
 
 
-DescriptorAllocation::DescriptorAllocation(CPUHandle handle, u32 numHandles, D3D12_DESCRIPTOR_HEAP_TYPE type, Ref<DescriptorAllocatorPage> page)
+DescriptorAllocation::DescriptorAllocation(CPUHandle handle, u32 numHandles, u32 descriptorSize,
+	D3D12_DESCRIPTOR_HEAP_TYPE type, Ref<DescriptorAllocatorPage> page)
 	: m_Handle(handle)
 	, m_NumDescriptors(numHandles)
+	, m_DescriptorSize(descriptorSize)
 	, m_Type(type)
 	, m_Page(page)
 {}
@@ -18,6 +20,7 @@ DescriptorAllocation::~DescriptorAllocation()
 DescriptorAllocation::DescriptorAllocation(DescriptorAllocation&& other) noexcept
 	: m_Handle(other.m_Handle)
 	, m_NumDescriptors(other.m_NumDescriptors)
+	, m_DescriptorSize(other.m_DescriptorSize)
 	, m_Type(other.m_Type)
 	, m_Page(other.m_Page)
 {
@@ -32,6 +35,7 @@ DescriptorAllocation& DescriptorAllocation::operator=(DescriptorAllocation&& oth
 
 	m_Handle = other.m_Handle;
 	m_NumDescriptors = other.m_NumDescriptors;
+	m_DescriptorSize = other.m_DescriptorSize;
 	m_Type = other.m_Type;
 	m_Page = other.m_Page;
 
@@ -40,6 +44,12 @@ DescriptorAllocation& DescriptorAllocation::operator=(DescriptorAllocation&& oth
 	other.m_Type = D3D12_DESCRIPTOR_HEAP_TYPE_NUM_TYPES;
 
 	return *this;
+}
+
+CPUHandle DescriptorAllocation::GetHandle(u32 offset) const {
+
+	ASSERT(offset < m_NumDescriptors);
+	return CPUHandle(m_Handle, offset, m_DescriptorSize);
 }
 
 void DescriptorAllocation::Free()

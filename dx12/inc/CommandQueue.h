@@ -4,13 +4,13 @@
 
 constexpr u32 COMMAND_QUEUE_LIST_COUNT = 5;
 
-struct CommandList;
+class CommandList;
 
 
 /** Command queue */
 struct CommandQueue {
 
-	void Init(struct Context* context, D3D12_COMMAND_LIST_TYPE type);
+	void Init(class Context* context, D3D12_COMMAND_LIST_TYPE type);
 
 	CommandList* GetCommandList();
 	void ClearCommandLists();

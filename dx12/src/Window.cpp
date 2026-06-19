@@ -3,22 +3,71 @@
 #include "Context.h"
 #include "ResourceStateTracker.h"
 
-
-DescriptorHeap CreateDescriptorHeap(const Device& device, const D3D12_DESCRIPTOR_HEAP_DESC& desc) {
-	DescriptorHeap heap = {};
-	ThrowIfFailed(device.d3d12Device10->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
-	return heap;
+namespace {
+	bool CheckTearingSupport() {
+		BOOL allowTearing = false;
+		ComPtr<IDXGIFactory4> factory4;
+		if (SUCCEEDED(CreateDXGIFactory1(IID_PPV_ARGS(&factory4)))) {
+			ComPtr<IDXGIFactory5> factory5;
+			if (SUCCEEDED(factory4.As(&factory5))) {
+				if (FAILED(factory5->CheckFeatureSupport(
+					DXGI_FEATURE_PRESENT_ALLOW_TEARING,
+					&allowTearing, sizeof(allowTearing)))) {
+					allowTearing = false;
+				}
+			}
+		}
+		return allowTearing;
+	}
 }
 
-DescriptorHeap CreateDescriptorHeap(const Device& device, D3D12_DESCRIPTOR_HEAP_TYPE type, u32 numDescriptors) {
-	DescriptorHeap heap = {};
-	D3D12_DESCRIPTOR_HEAP_DESC desc = {
-		.Type = type,
-		.NumDescriptors = numDescriptors,
+SwapChain::SwapChain(Context* context, HWND hWnd, ivec2 size, bool vSync, bool fullscreen)
+	: context(context)
+	, vSync(vSync)
+	, fullscreen(fullscreen)
+{
+	ComPtr<IDXGISwapChain1> swapChain1;
+	ComPtr<IDXGIFactory4> factory;
+
+	allowTearing = CheckTearingSupport();
+
+	ThrowIfFailed(CreateDXGIFactory2(CREATE_FACTORY_FLAGS, IID_PPV_ARGS(&factory)));
+
+	DXGI_SWAP_CHAIN_DESC1 swapChainDesc = {
+		.Width = (UINT)size.x,
+		.Height = (UINT)size.y,
+		.Format = DXGI_FORMAT_R8G8B8A8_UNORM,
+		.Stereo = FALSE,
+		.SampleDesc = { 1, 0 },
+		.BufferUsage = DXGI_USAGE_RENDER_TARGET_OUTPUT,
+		.BufferCount = SWAP_CHAIN_BUFFER_COUNT,
+		.Scaling = DXGI_SCALING_STRETCH,
+		.SwapEffect = DXGI_SWAP_EFFECT_FLIP_DISCARD,
+		.AlphaMode = DXGI_ALPHA_MODE_UNSPECIFIED,
+		.Flags = (allowTearing ? DXGI_SWAP_CHAIN_FLAG_ALLOW_TEARING : 0u) |
+			DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT,
 	};
-	ThrowIfFailed(device.d3d12Device10->CreateDescriptorHeap(&desc, IID_PPV_ARGS(&heap.d3dDescriptorHeap)));
-	return heap;
+
+	const CommandQueue& commandQueue = context->CommandQueueDirect();
+
+	ThrowIfFailed(factory->CreateSwapChainForHwnd(
+		commandQueue.d3dCommandQueue.Get(),
+		hWnd,
+		&swapChainDesc,
+		nullptr,
+		nullptr,
+		&swapChain1));
+
+	ThrowIfFailed(factory->MakeWindowAssociation(hWnd, DXGI_MWA_NO_ALT_ENTER));
+	ThrowIfFailed(swapChain1.As(&dxgiSwapChain4));
+	ThrowIfFailed(dxgiSwapChain4->SetMaximumFrameLatency(SWAP_CHAIN_BUFFER_COUNT - 1));
+
+	frameLatencyWaitHandle = dxgiSwapChain4->GetFrameLatencyWaitableObject();
+	depthStencil = DepthStencil::CreateDefault(context, size);
+
+	UpdateBackBuffers();
 }
+
 
 void SwapChain::Present() {
 	UINT syncInterval = vSync ? 1 : 0;
@@ -28,6 +77,8 @@ void SwapChain::Present() {
 	CommandQueue& commandQueue = context->CommandQueueDirect();
 	frameFenceValues[currentBackBufferIndex] = commandQueue.Signal();
 	currentBackBufferIndex = dxgiSwapChain4->GetCurrentBackBufferIndex();
+	renderTarget.AttachTexture(RenderTarget::Color0, backBuffers[currentBackBufferIndex]);
+
 	commandQueue.WaitForFenceValue(frameFenceValues[currentBackBufferIndex]);
 }
 
@@ -38,23 +89,40 @@ void SwapChain::Wait() {
 	}
 }
 
-void SwapChain::UpdateBackBuffers() {
-	const Device& device = context->GetDevice();
-	u32 rtvDescriptorSize = device.d3d12Device10->GetDescriptorHandleIncrementSize(D3D12_DESCRIPTOR_HEAP_TYPE_RTV);
-	CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(rtvVDescriptorHeap.d3dDescriptorHeap->GetCPUDescriptorHandleForHeapStart());
-	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
-		backBuffers[i] = MakeRef<Resource>();
-		Ref<Resource>& backBuffer = backBuffers[i];
-		backBuffer->cpuHandle = rtvHandle;
-		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer->d3d12Resource)));
-		ThrowIfFailed(backBuffer->d3d12Resource->SetName((L"Back Buffer[" + std::to_wstring(i) + L"]").c_str()));
-		device.d3d12Device10->CreateRenderTargetView(backBuffer->d3d12Resource.Get(), nullptr, rtvHandle);
-		rtvHandle.Offset((INT)rtvDescriptorSize);
+void SwapChain::Resize(ivec2 size) {
 
-		// Register back buffers with the global layout tracker (initial layout is PRESENT/COMMON)
-		context->GetGlobalLayoutTracker().Register(
-			backBuffer->d3d12Resource.Get(), D3D12_BARRIER_LAYOUT_PRESENT, 1);
+	for (Ref<Texture>& backBuffer : backBuffers) {
+		// Unregister from layout tracker before releasing
+		if (backBuffer && backBuffer->d3d12Resource) {
+			context->GetGlobalLayoutTracker().Unregister(backBuffer->d3d12Resource.Get());
+		}
+		// Any references to the back buffers must be released
+		// before the swap chain can be resized.
+		if (backBuffer) backBuffer->d3d12Resource.Reset();
 	}
+	DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
+	ThrowIfFailed(dxgiSwapChain4->GetDesc(&swapChainDesc));
+	ThrowIfFailed(dxgiSwapChain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT,
+		(UINT)size.x, (UINT)size.y,
+		swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
+
+	UpdateBackBuffers();
+
+	depthStencil.Resize(size);
+}
+
+void SwapChain::UpdateBackBuffers() {
+	for (u32 i = 0; i < SWAP_CHAIN_BUFFER_COUNT; ++i) {
+		ComPtr<ID3D12Resource> backBuffer;
+		ThrowIfFailed(dxgiSwapChain4->GetBuffer(i, IID_PPV_ARGS(&backBuffer)));
+		std::wstring name = std::format(L"Back Buffer[{}]", i);
+		backBuffers[i] = MakeRef<Texture>(context, backBuffer, nullptr, name.c_str());
+
+		// Register back buffers with the global layout tracker.
+		context->GetGlobalLayoutTracker().Register(backBuffer.Get(), D3D12_BARRIER_LAYOUT_COMMON);
+	}
+	currentBackBufferIndex = dxgiSwapChain4->GetCurrentBackBufferIndex();
+	renderTarget.AttachTexture(RenderTarget::Color0, backBuffers[currentBackBufferIndex]);
 }
 
 D3D12_RT_FORMAT_ARRAY SwapChain::GetRenderTargetFormats() const {
@@ -63,38 +131,63 @@ D3D12_RT_FORMAT_ARRAY SwapChain::GetRenderTargetFormats() const {
 	return rtFormats;
 }
 
-Ref<Resource> SwapChain::GetCurrentBackBuffer() {
+Ref<Texture> SwapChain::GetCurrentBackBuffer() {
 	return backBuffers[currentBackBufferIndex];
 }
 
-void Window::Resize(ivec2 size) {
-	if (size.x != size.x || size.y != size.y)
+Window* Window::Create(Context* context, const wchar_t* title, const CommandLineArgs& args) {
+	Window* window = new Window;
+	window->size = { args.width, args.height };
+	window->title = title;
+	window->showFPS = args.showFPS;
+	window->context = context;
+	window->rect = { 0, 0, (LONG)args.width, (LONG)args.height };
+	AdjustWindowRect(&window->rect, WS_OVERLAPPEDWINDOW, FALSE);
+
+	window->hWnd = CreateWindowExW(
+		NULL, WINDOW_CLASS_NAME, title, WS_OVERLAPPEDWINDOW,
+		CW_USEDEFAULT, CW_USEDEFAULT,
+		window->rect.right - window->rect.left,
+		window->rect.bottom - window->rect.top,
+		NULL, NULL, context->GetInstanceHandle(), nullptr);
+
+	if (!window->hWnd) {
+		MessageBoxA(NULL, "Could not create the render window.", "Error", MB_OK | MB_ICONERROR);
+		return {};
+	}
+
+	// Set pointer to this WinApp, to allow it to be retrieved in WndProc.
+	SetWindowLongPtrW(window->hWnd, GWLP_USERDATA, (LONG_PTR)window);
+
+	window->swapChain = SwapChain(context, window->hWnd, window->size, args.vSync, false);
+	window->initialized = true;
+
+	return window;
+}
+
+void Window::Destroy(Window* window) {
+	delete window;
+}
+
+void Window::Resize(RECT newRect) {
+	rect = newRect;
+	ivec2 newSize = {
+		rect.right - rect.left,
+		rect.bottom - rect.top
+	};
+
+	if (newSize.x != size.x || newSize.y != size.y)
 	{
 		// Don't allow 0 size swap chain back buffers.
-		this->size.x = std::max(1, size.x);
-		this->size.y = std::max(1, size.y);
+		size.x = std::max(1, newSize.x);
+		size.y = std::max(1, newSize.y);
 
 		// Flush the GPU queue to make sure the swap chain's back buffers
 		// are not being referenced by an in-flight command list.
 		context->FlushAllCommandQueues();
 
-		for (Ref<Resource>& backBuffer : swapChain.backBuffers) {
-			// Unregister from layout tracker before releasing
-			if (backBuffer && backBuffer->d3d12Resource) {
-				context->GetGlobalLayoutTracker().Unregister(backBuffer->d3d12Resource.Get());
-			}
-			// Any references to the back buffers must be released
-			// before the swap chain can be resized.
-			if (backBuffer) backBuffer->d3d12Resource.Reset();
-		}
-		DXGI_SWAP_CHAIN_DESC swapChainDesc = {};
-		ThrowIfFailed(swapChain.dxgiSwapChain4->GetDesc(&swapChainDesc));
-		ThrowIfFailed(swapChain.dxgiSwapChain4->ResizeBuffers(SWAP_CHAIN_BUFFER_COUNT,
-			this->size.x, this->size.y,
-			swapChainDesc.BufferDesc.Format, swapChainDesc.Flags));
-
-		swapChain.currentBackBufferIndex = swapChain.dxgiSwapChain4->GetCurrentBackBufferIndex();
-		swapChain.UpdateBackBuffers();
+		// Resize swap chain
+		swapChain.Resize(size);
 	}
 }
 
@@ -127,9 +220,11 @@ bool Window::PollEvents() {
 	rollingAvgDelta = glm::mix(rollingAvgDelta, deltaTime, alpha);
 	f64 fps = glm::round(1.0 / rollingAvgDelta);
 
-	// Display the FPS in the window title bar
-	std::wstring windowText = fmt::format(L"FPS: {:3.0f}", fps);
-	SetWindowTextW(hWnd, windowText.c_str());
+	if (showFPS) {
+		// Display the FPS in the window title bar
+		std::wstring windowText = std::format(L"FPS: {:3.0f}", fps);
+		SetWindowTextW(hWnd, windowText.c_str());
+	}
 
 	return true;
 }
@@ -159,20 +254,16 @@ LRESULT Window::WndProc(HWND hWnd, UINT message, WPARAM wParam, LPARAM lParam) {
 				break;
 			}
 		}
-					   break;
+	    break;
 
-		case WM_SIZE: {
+		case WM_SIZE:
+		{
 			RECT clientRect = {};
 			GetClientRect(hWnd, &clientRect);
-			window->Resize({
-				clientRect.right - clientRect.left,
-				clientRect.bottom - clientRect.top
-				});
+			window->Resize(clientRect);
 		}
-					break;
-					// The default window procedure will play a system notification sound 
-					// when pressing the Alt+Enter keyboard combination if this message is 
-					// not handled.
+		break;
+
 		case WM_SYSCHAR:
 			break;
 

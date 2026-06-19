@@ -2,7 +2,7 @@
 #include "DescriptorAllocation.h"
 
 // Forward Declaration
-struct Context;
+class Context;
 class DescriptorAllocatorPage;
 
 class DescriptorAllocator : NonCopyable

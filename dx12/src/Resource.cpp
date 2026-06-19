@@ -12,6 +12,10 @@ Resource::Resource(Context* context, ComPtr<ID3D12Resource> resource, const wcha
 }
 
 
+ComPtr<ID3D12Resource> Resource::GetD3D12Resource() const {
+	return d3d12Resource;
+}
+
 D3D12_RESOURCE_DESC Resource::GetD3D12ResourceDesc() const {
 	D3D12_RESOURCE_DESC desc = {};
 	if (d3d12Resource) {
@@ -29,6 +33,14 @@ D3D12_RT_FORMAT_ARRAY Resource::GetRenderTargetFormats() const {
 		.NumRenderTargets = 1,
 	};
 	return formats;
+}
+
+std::wstring Resource::GetName() const {
+	UINT size;
+	d3d12Resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, &size, nullptr);
+	std::wstring name((size_t)size, L'0');
+	d3d12Resource->GetPrivateData(WKPDID_D3DDebugObjectNameW, nullptr, name.data());
+	return name;
 }
 
 bool Resource::CheckFormatSupport(D3D12_FORMAT_SUPPORT1 formatSupport1) const {

@@ -60,22 +60,24 @@ u64 CommandQueue::ExecuteCommandList(CommandList* commandList) {
 
 u64 CommandQueue::ExecuteCommandLists(CommandList** commandLists, u32 count) {
 
-	// Gather command lists that need to be executed.
 	std::vector<ID3D12CommandList*> d3d12CommandLists;
 	d3d12CommandLists.reserve(count + 1); // +1 for potential pending
 
-	// Resolve pending barriers from all command lists being submitted
+	// Gather command list resource state trackers
 	std::vector<ResourceStateTracker*> trackers(count);
 	for (u32 idx = 0; idx < count; ++idx) {
 		trackers[idx] = &commandLists[idx]->resourceStateTracker;
+		trackers[idx]->FlushImmediateBarriers(commandLists[idx]);
 	}
 
-	// Commit final layout states to global tracker
+	// Resolve pending barriers from all command lists being submitted
 	GlobalLayoutTracker& globalTracker = m_Context->GetGlobalLayoutTracker();
 	ID3D12GraphicsCommandList7* pendingCL = globalTracker.ResolvePendingBarriers(trackers);
 	if (pendingCL) {
 		d3d12CommandLists.push_back(pendingCL);
 	}
+
+	// Commit final layout states to global tracker
 	globalTracker.CommitFinalLayoutStates(trackers);
 
 	// Close and execute the command lists

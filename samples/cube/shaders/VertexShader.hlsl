@@ -25,7 +25,7 @@ VertexShaderOutput main(VertexStaticMesh IN)
 
     OUT.position = mul(ModelViewProjectionCB.MVP, float4(IN.position, 1.0f));
     OUT.normal = mul(ModelViewProjectionCB.MVP, float4(IN.normal, 0.0f));
-    OUT.texCoords = IN.texCoord;
+    OUT.texCoords = float2(IN.texCoord.x, 1.0 - IN.texCoord.y);
 
     return OUT;
 }

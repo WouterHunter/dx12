@@ -26,12 +26,13 @@ using Microsoft::WRL::ComPtr;
 #include <algorithm>
 #include <chrono>
 #include <filesystem>
-#include <format>
 #include <functional>
 #include <iostream>
 #include <memory>
+#include <memory_resource>
 #include <mutex>
 #include <queue>
+#include <ranges>
 #include <set>
 #include <shared_mutex>
 #include <span>
@@ -41,6 +42,7 @@ using Microsoft::WRL::ComPtr;
 #include <unordered_map>
 
 namespace fs = std::filesystem;
+namespace pmr = std::pmr;
 using std::chrono::nanoseconds;
 using std::chrono::microseconds;
 using std::chrono::milliseconds;
@@ -95,16 +97,27 @@ using glm::ivec2;
 using glm::ivec3;
 using glm::ivec4;
 
+// DirectX Aliases
 using CPUHandle = CD3DX12_CPU_DESCRIPTOR_HANDLE;
 using GPUHandle = CD3DX12_GPU_DESCRIPTOR_HANDLE;
 
+// DirectX Default Values
+constexpr f32				DEFAULT_CLEAR_COLOR[]			 = { 0.1f, 0.15f, 0.15f, 1.0f };
+constexpr f32				DEFAULT_CLEAR_DEPTH				 = 1.0f;
+constexpr u8				DEFAULT_CLEAR_STENCIL			 = 0;
+constexpr DXGI_FORMAT		DEFAULT_BACK_BUFFER_FORMAT		 = DXGI_FORMAT_R8G8B8A8_UNORM;
+constexpr DXGI_FORMAT		DEFAULT_DEPTH_BUFFER_FORMAT		 = DXGI_FORMAT_D32_FLOAT;
+constexpr DXGI_FORMAT		DEFAULT_SRGB_FORMAT				 = DXGI_FORMAT_R8G8B8A8_UNORM_SRGB;
+constexpr D3D12_CLEAR_VALUE	DEFAULT_BACK_BUFFER_CLEAR_VALUE	 = { DEFAULT_BACK_BUFFER_FORMAT, { 0, 0, 0, 0 } };
+constexpr D3D12_CLEAR_VALUE	DEFAULT_DEPTH_BUFFER_CLEAR_VALUE = { DEFAULT_DEPTH_BUFFER_FORMAT, { 1, 0 } };
+constexpr D3D12_RECT		DEFAULT_SCISSOR_RECT			 = { 0, 0, LONG_MAX, LONG_MAX };
+
 constexpr u32 INVALID_INDEX = ~0u;
 constexpr u64 INVALID_FENCE_VALUE = ~0ull;
+constexpr wchar_t WINDOW_CLASS_NAME[] = L"DX12 Render Window";
 
 #ifdef _DEBUG
 constexpr u32 CREATE_FACTORY_FLAGS = DXGI_CREATE_FACTORY_DEBUG;
 #else
 constexpr u32 CREATE_FACTORY_FLAGS = 0;
 #endif
-
-#include "Logging.h"

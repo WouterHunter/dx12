@@ -1,7 +1,7 @@
 #pragma once
 #include "DescriptorAllocation.h"
 
-struct Context;
+class Context;
 
 
 class DescriptorAllocatorPage : public std::enable_shared_from_this<DescriptorAllocatorPage>
